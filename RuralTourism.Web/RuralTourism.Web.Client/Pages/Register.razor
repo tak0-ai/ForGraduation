@@ -1,0 +1,127 @@
+@page "/register"
+@using System.ComponentModel.DataAnnotations
+@using RuralTourism.Web.Client.Services
+@inject AuthService AuthService
+@inject NavigationManager Navigation
+
+@rendermode InteractiveAuto
+
+<PageTitle>注册</PageTitle>
+
+<div class="row justify-content-center mt-5">
+    <div class="col-md-6 col-lg-4">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h3 class="card-title text-center mb-4">用户注册</h3>
+
+                <EditForm Model="registerModel" OnValidSubmit="HandleSubmit" FormName="registerForm">
+                    <DataAnnotationsValidator />
+                    <ValidationSummary class="text-danger small" />
+
+                    <div class="mb-3">
+                        <label class="form-label">用户名</label>
+                        <InputText class="form-control" @bind-Value="registerModel.UserName" placeholder="至少3个字符" />
+                        <ValidationMessage For="@(() => registerModel.UserName)" class="text-danger small" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">邮箱地址</label>
+                        <InputText class="form-control" @bind-Value="registerModel.Email" placeholder="example@domain.com" />
+                        <ValidationMessage For="@(() => registerModel.Email)" class="text-danger small" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">密码</label>
+                        <InputText class="form-control" @bind-Value="registerModel.Password" type="password" placeholder="至少6个字符" />
+                        <ValidationMessage For="@(() => registerModel.Password)" class="text-danger small" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">确认密码</label>
+                        <InputText class="form-control" @bind-Value="registerModel.ConfirmPassword" type="password" placeholder="请再次输入密码" />
+                        <ValidationMessage For="@(() => registerModel.ConfirmPassword)" class="text-danger small" />
+                    </div>
+
+                    <div class="d-grid gap-2 mt-4">
+                        <button class="btn btn-primary" type="submit" disabled="@isSubmitting">
+                            @if (isSubmitting)
+                            {
+                                <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                <span class="ms-1">正在注册...</span>
+                            }
+                            else
+                            {
+                                <span>注册</span>
+                            }
+                        </button>
+                    </div>
+
+                    <div class="mt-3 text-center">
+                        <small class="text-muted">已有账号？</small>
+                        <a href="login" class="btn btn-link btn-sm p-0">前往登录</a>
+                    </div>
+                </EditForm>
+
+                @if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <div class="alert alert-danger mt-3 small">@errorMessage</div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private RegisterViewModel registerModel = new();
+    private bool isSubmitting;
+    private string? errorMessage;
+
+    private async Task HandleSubmit()
+    {
+        errorMessage = null;
+        isSubmitting = true;
+        try
+        {
+            var success = await AuthService.RegisterAsync(new RegisterRequest(
+                registerModel.UserName, 
+                registerModel.Email, 
+                registerModel.Password));
+
+            if (success)
+            {
+                // 注册成功后跳转到登录页面
+                Navigation.NavigateTo("/login");
+            }
+            else
+            {
+                errorMessage = "注册失败。用户名或邮箱可能已被占用，请检查后重试。";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"发生错误: {ex.Message}";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private sealed class RegisterViewModel
+    {
+        [Required(ErrorMessage = "请输入用户名")]
+        [MinLength(3, ErrorMessage = "用户名至少需要3个字符")]
+        public string UserName { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "请输入邮箱")]
+        [EmailAddress(ErrorMessage = "请输入有效的邮箱地址")]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "请输入密码")]
+        [MinLength(6, ErrorMessage = "密码至少需要6个字符")]
+        public string Password { get; set; } = string.Empty;
+
+        [Compare(nameof(Password), ErrorMessage = "两次输入的密码不一致")]
+        public string ConfirmPassword { get; set; } = string.Empty;
+    }
+}

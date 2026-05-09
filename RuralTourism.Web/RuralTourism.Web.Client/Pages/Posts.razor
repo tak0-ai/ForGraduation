@@ -1,0 +1,91 @@
+@page "/posts"
+@rendermode InteractiveWebAssembly
+@using RuralTourism.Web.Client.Models
+@using RuralTourism.Web.Client.Services
+@inject PostService PostService
+
+<PageTitle>全部帖子</PageTitle>
+
+<div class="container mt-4 mb-5">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="mb-0">全部帖子</h3>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="LoadAsync" disabled="@isLoading">
+            @if (isLoading)
+            {
+                <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+            }
+            刷新
+        </button>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+        </div>
+    }
+    else if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger">@errorMessage</div>
+    }
+    else if (posts.Count == 0)
+    {
+        <div class="alert alert-info">暂无已发布帖子。</div>
+    }
+    else
+    {
+        <div class="list-group shadow-sm">
+            @foreach (var post in posts)
+            {
+                <a class="list-group-item list-group-item-action" href="@($"/posts/{post.Id}")" target="_blank">
+                    <div class="d-flex w-100 justify-content-between align-items-start gap-3">
+                        <div class="flex-grow-1">
+                            <h6 class="mb-1">@post.Title</h6>
+                            <small class="text-muted">发布于 @GetPublicationDate(post)</small>
+                        </div>
+                        <span class="badge text-bg-light border">已发布</span>
+                    </div>
+                </a>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private readonly List<PostSummaryDto> posts = [];
+    private bool isLoading = true;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+        try
+        {
+            var data = await PostService.GetPublishedPostsAsync();
+            posts.Clear();
+            posts.AddRange(data
+                .Where(p => p.Status == PostStatus.Published)
+                .OrderByDescending(p => p.PublishedAt ?? p.CreatedAt));
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"加载帖子失败: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private static string GetPublicationDate(PostSummaryDto post)
+    {
+        var date = post.PublishedAt ?? post.CreatedAt;
+        return date.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+    }
+}

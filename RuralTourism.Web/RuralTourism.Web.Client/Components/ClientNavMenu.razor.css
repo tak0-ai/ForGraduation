@@ -1,0 +1,55 @@
+.navbar-custom {
+    background: linear-gradient(120deg, #3b8e62 0%, #2f7f59 55%, #2a6e4e 100%);
+    color: #fff;
+    border-bottom: 1px solid rgba(230, 245, 235, 0.45);
+    box-shadow: 0 10px 24px rgba(26, 68, 49, 0.28);
+    padding: 0.5rem 1rem;
+}
+
+.brand-title {
+    font-weight: 700;
+    letter-spacing: 0.25rem;
+    color: #fff;
+    margin-bottom: 0;
+}
+
+.nav-links {
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.nav-link {
+    color: #fff;
+    border-radius: 999px;
+    transition: all 0.2s ease;
+    font-weight: 500;
+    padding: 0.4rem 0.9rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.nav-link:hover,
+.nav-link.active {
+    color: #fff;
+    background: rgba(232, 248, 237, 0.18);
+    box-shadow: 0 0 16px rgba(26, 91, 62, 0.22);
+}
+
+button.nav-link {
+    border: none;
+    padding: 0.4rem 0.9rem;
+}
+
+@media (max-width: 768px) {
+    .navbar-custom {
+        flex-wrap: wrap;
+    }
+
+    .nav-links {
+        width: 100%;
+        justify-content: space-between;
+        margin-top: 0.5rem;
+    }
+}

@@ -1,0 +1,1876 @@
+﻿@page "/resources/{type}/{id}"
+@rendermode InteractiveWebAssembly
+@using RuralTourism.Web.Client.Models
+@using RuralTourism.Web.Client.Services
+@inject ResourceService ResourceService
+@inject PostService PostService
+@inject TourPlanService TourPlanService
+@inject ChatService ChatService
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject AuthService AuthService
+@inject IJSRuntime JSRuntime
+@implements IDisposable
+
+<div class="container mt-4 mb-5">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <button class="btn btn-outline-secondary" @onclick="GoBack">
+            <i class="bi bi-arrow-left"></i> 返回列表
+        </button>
+        @if (!isLoading && !notFound && AuthService.IsAuthenticated && AuthService.IsInRole("Admin"))
+        {
+            <div class="d-flex gap-2">
+                <button class="btn btn-outline-primary" @onclick="BeginEdit" disabled="@isDeleting">
+                    <i class="bi bi-pencil-square"></i> 修改资源
+                </button>
+                <button class="btn btn-danger" @onclick="DeleteResourceAsync" disabled="@isDeleting">
+                    @if (isDeleting)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                    }
+                    <i class="bi bi-trash"></i> 删除资源
+                </button>
+            </div>
+        }
+    </div>
+
+    @if (errorMsg != null)
+    {
+        <div class="alert alert-danger mb-3">@errorMsg</div>
+    }
+    @if (successMsg != null)
+    {
+        <div class="alert alert-success mb-3">@successMsg</div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+        </div>
+    }
+    else if (notFound)
+    {
+        <div class="alert alert-warning">未找到该资源</div>
+    }
+    else
+    {
+        @if (isEditing)
+        {
+            <div class="card border-primary mb-3">
+                <div class="card-body">
+                    <h5 class="card-title">修改资源</h5>
+                    <EditForm OnValidSubmit="SaveEditAsync" Model="currentEditModel">
+                        <div class="row g-2">
+                            @if (Type == "attractions")
+                            {
+                                <div class="col-md-6"><label class="form-label">名称</label><InputText class="form-control" @bind-Value="editAttraction.Name" /></div>
+                                <div class="col-md-6">
+                                    <label class="form-label">封面图片</label>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <InputFile OnChange="HandleEditCoverUpload" class="form-control" accept="image/*" />
+                                        @if (isEditCoverUploading)
+                                        {
+                                            <span class="spinner-border spinner-border-sm text-primary" role="status"></span>
+                                        }
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(editAttraction.CoverMediaId))
+                                    {
+                                        <img src="@GetImageUrl(editAttraction.CoverMediaId)" class="mt-2 rounded border" style="width: 120px; height: 90px; object-fit: cover;" />
+                                    }
+                                </div>
+                                <div class="col-md-12"><label class="form-label">描述</label><InputTextArea class="form-control" rows="2" @bind-Value="editAttraction.Description" /></div>
+                                <div class="col-md-12"><label class="form-label">标签（逗号分隔）</label><InputText class="form-control" @bind-Value="editAttraction.Tags" /></div>
+                                <div class="col-md-6"><label class="form-label">地址</label><InputText class="form-control" @bind-Value="editAttraction.Address" /></div>
+                                <div class="col-md-3"><label class="form-label">经度</label><InputNumber class="form-control" @bind-Value="editAttraction.Longitude" /></div>
+                                <div class="col-md-3"><label class="form-label">纬度</label><InputNumber class="form-control" @bind-Value="editAttraction.Latitude" /></div>
+                                <div class="col-md-4"><label class="form-label">开放时间</label><InputText class="form-control" @bind-Value="editAttraction.OpeningHours" /></div>
+                                <div class="col-md-4"><label class="form-label">门票价格</label><InputText class="form-control" @bind-Value="editAttraction.TicketPrice" /></div>
+                            }
+                            else if (Type == "accommodations")
+                            {
+                                <div class="col-md-6"><label class="form-label">名称</label><InputText class="form-control" @bind-Value="editAccommodation.Name" /></div>
+                                <div class="col-md-6">
+                                    <label class="form-label">封面图片</label>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <InputFile OnChange="HandleEditCoverUpload" class="form-control" accept="image/*" />
+                                        @if (isEditCoverUploading)
+                                        {
+                                            <span class="spinner-border spinner-border-sm text-primary" role="status"></span>
+                                        }
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(editAccommodation.CoverMediaId))
+                                    {
+                                        <img src="@GetImageUrl(editAccommodation.CoverMediaId)" class="mt-2 rounded border" style="width: 120px; height: 90px; object-fit: cover;" />
+                                    }
+                                </div>
+                                <div class="col-md-12"><label class="form-label">描述</label><InputTextArea class="form-control" rows="2" @bind-Value="editAccommodation.Description" /></div>
+                                <div class="col-md-12"><label class="form-label">标签（逗号分隔）</label><InputText class="form-control" @bind-Value="editAccommodation.Tags" /></div>
+                                <div class="col-md-6"><label class="form-label">地址</label><InputText class="form-control" @bind-Value="editAccommodation.Address" /></div>
+                                <div class="col-md-3"><label class="form-label">经度</label><InputNumber class="form-control" @bind-Value="editAccommodation.Longitude" /></div>
+                                <div class="col-md-3"><label class="form-label">纬度</label><InputNumber class="form-control" @bind-Value="editAccommodation.Latitude" /></div>
+                                <div class="col-md-4"><label class="form-label">星级</label><InputNumber class="form-control" @bind-Value="editAccommodation.StarRating" /></div>
+                                <div class="col-md-4"><label class="form-label">设施</label><InputText class="form-control" @bind-Value="editAccommodation.Amenities" /></div>
+                                <div class="col-md-4"><label class="form-label">房型</label><InputText class="form-control" @bind-Value="editAccommodation.RoomTypes" /></div>
+                            }
+                            else if (Type == "dining")
+                            {
+                                <div class="col-md-6"><label class="form-label">名称</label><InputText class="form-control" @bind-Value="editDining.Name" /></div>
+                                <div class="col-md-6">
+                                    <label class="form-label">封面图片</label>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <InputFile OnChange="HandleEditCoverUpload" class="form-control" accept="image/*" />
+                                        @if (isEditCoverUploading)
+                                        {
+                                            <span class="spinner-border spinner-border-sm text-primary" role="status"></span>
+                                        }
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(editDining.CoverMediaId))
+                                    {
+                                        <img src="@GetImageUrl(editDining.CoverMediaId)" class="mt-2 rounded border" style="width: 120px; height: 90px; object-fit: cover;" />
+                                    }
+                                </div>
+                                <div class="col-md-12"><label class="form-label">描述</label><InputTextArea class="form-control" rows="2" @bind-Value="editDining.Description" /></div>
+                                <div class="col-md-12"><label class="form-label">标签（逗号分隔）</label><InputText class="form-control" @bind-Value="editDining.Tags" /></div>
+                                <div class="col-md-6"><label class="form-label">地址</label><InputText class="form-control" @bind-Value="editDining.Address" /></div>
+                                <div class="col-md-3"><label class="form-label">经度</label><InputNumber class="form-control" @bind-Value="editDining.Longitude" /></div>
+                                <div class="col-md-3"><label class="form-label">纬度</label><InputNumber class="form-control" @bind-Value="editDining.Latitude" /></div>
+                                <div class="col-md-4"><label class="form-label">菜系</label><InputText class="form-control" @bind-Value="editDining.CuisineType" /></div>
+                                <div class="col-md-4"><label class="form-label">人均价格</label><InputText class="form-control" @bind-Value="editDining.PriceRange" /></div>
+                                <div class="col-md-4"><label class="form-label">特色菜</label><InputText class="form-control" @bind-Value="editDining.SignatureDishes" /></div>
+                            }
+                            else if (Type == "folk")
+                            {
+                                <div class="col-md-6"><label class="form-label">名称</label><InputText class="form-control" @bind-Value="editFolk.Name" /></div>
+                                <div class="col-md-6">
+                                    <label class="form-label">封面图片</label>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <InputFile OnChange="HandleEditCoverUpload" class="form-control" accept="image/*" />
+                                        @if (isEditCoverUploading)
+                                        {
+                                            <span class="spinner-border spinner-border-sm text-primary" role="status"></span>
+                                        }
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(editFolk.CoverMediaId))
+                                    {
+                                        <img src="@GetImageUrl(editFolk.CoverMediaId)" class="mt-2 rounded border" style="width: 120px; height: 90px; object-fit: cover;" />
+                                    }
+                                </div>
+                                <div class="col-md-12"><label class="form-label">描述</label><InputTextArea class="form-control" rows="2" @bind-Value="editFolk.Description" /></div>
+                                <div class="col-md-12"><label class="form-label">标签（逗号分隔）</label><InputText class="form-control" @bind-Value="editFolk.Tags" /></div>
+                                <div class="col-md-6"><label class="form-label">地址</label><InputText class="form-control" @bind-Value="editFolk.Address" /></div>
+                                <div class="col-md-3"><label class="form-label">经度</label><InputNumber class="form-control" @bind-Value="editFolk.Longitude" /></div>
+                                <div class="col-md-3"><label class="form-label">纬度</label><InputNumber class="form-control" @bind-Value="editFolk.Latitude" /></div>
+                                <div class="col-md-4"><label class="form-label">活动日期</label><InputDate class="form-control" @bind-Value="editFolk.EventDate" /></div>
+                                <div class="col-md-4"><label class="form-label">持续时间</label><InputText class="form-control" @bind-Value="editFolk.Duration" /></div>
+                                <div class="col-md-4"><label class="form-label">主办方</label><InputText class="form-control" @bind-Value="editFolk.Organizer" /></div>
+                            }
+                            else if (Type == "beautiful-villages")
+                            {
+                                <div class="col-md-6"><label class="form-label">名称</label><InputText class="form-control" @bind-Value="editBeautifulVillage.Name" /></div>
+                                <div class="col-md-6">
+                                    <label class="form-label">封面图片</label>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <InputFile OnChange="HandleEditCoverUpload" class="form-control" accept="image/*" />
+                                        @if (isEditCoverUploading)
+                                        {
+                                            <span class="spinner-border spinner-border-sm text-primary" role="status"></span>
+                                        }
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(editBeautifulVillage.CoverMediaId))
+                                    {
+                                        <img src="@GetImageUrl(editBeautifulVillage.CoverMediaId)" class="mt-2 rounded border" style="width: 120px; height: 90px; object-fit: cover;" />
+                                    }
+                                </div>
+                                <div class="col-md-12"><label class="form-label">描述</label><InputTextArea class="form-control" rows="2" @bind-Value="editBeautifulVillage.Description" /></div>
+                                <div class="col-md-12"><label class="form-label">标签（逗号分隔）</label><InputText class="form-control" @bind-Value="editBeautifulVillage.Tags" /></div>
+                                <div class="col-md-6"><label class="form-label">地址</label><InputText class="form-control" @bind-Value="editBeautifulVillage.Address" /></div>
+                                <div class="col-md-3"><label class="form-label">经度</label><InputNumber class="form-control" @bind-Value="editBeautifulVillage.Longitude" /></div>
+                                <div class="col-md-3"><label class="form-label">纬度</label><InputNumber class="form-control" @bind-Value="editBeautifulVillage.Latitude" /></div>
+                                <div class="col-md-6"><label class="form-label">村镇类型</label><InputText class="form-control" @bind-Value="editBeautifulVillage.VillageType" /></div>
+                                <div class="col-md-6"><label class="form-label">著名景点或特色</label><InputText class="form-control" @bind-Value="editBeautifulVillage.FamousFor" /></div>
+                            }
+                            <div class="col-12 d-flex gap-2 mt-2">
+                                <button class="btn btn-primary" type="submit" disabled="@isSaving">保存修改</button>
+                                <button class="btn btn-outline-secondary" type="button" @onclick="CancelEdit" disabled="@isSaving">取消</button>
+                            </div>
+                        </div>
+                    </EditForm>
+                </div>
+            </div>
+        }
+
+
+
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h1 class="scenic-title mb-0">@baseResource.Name</h1>
+            <div class="d-flex gap-4 text-center">
+                <button type="button" class="btn btn-outline-primary btn-sm" @onclick="OpenJoinPlanPanelAsync">
+                    <i class="bi bi-calendar-check-fill me-1"></i> 加入行程
+                </button>
+                <button type="button" class="btn btn-outline-success btn-sm" @onclick="OpenShareResourcePanelAsync">
+                    <i class="bi bi-share me-1"></i> 分享
+                </button>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <div class="col-lg-8">
+                <div class="card border-0 shadow-sm mb-3">
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-7">
+                                <div class="position-relative rounded overflow-hidden border bg-light">
+                                    <img src="@CurrentImageUrl" class="w-100" style="height: 320px; object-fit: contain; background-color: #f8f9fa; cursor: zoom-in;" alt="@baseResource.Name" @onclick="() => OpenGallery(currentImageIndex)" />
+                                    @if (imageUrls.Count > 1)
+                                    {
+                                        <button class="btn btn-dark btn-sm position-absolute top-50 start-0 translate-middle-y ms-2" @onclick="PrevImage"><i class="bi bi-chevron-left"></i></button>
+                                        <button class="btn btn-dark btn-sm position-absolute top-50 end-0 translate-middle-y me-2" @onclick="NextImage"><i class="bi bi-chevron-right"></i></button>
+                                    }
+
+@if (showShareResourcePanel)
+{
+    <div class="gallery-overlay" @onclick="CloseShareResourcePanel">
+        <div class="bg-white rounded p-3" style="width:min(560px,96vw);" @onclick:stopPropagation="true">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0">选择聊天分享景点</h6>
+                <button class="btn btn-sm btn-light" @onclick="CloseShareResourcePanel"><i class="bi bi-x-lg"></i></button>
+            </div>
+
+            @if (isLoadingShareRooms)
+            {
+                <div class="text-center py-2"><span class="spinner-border spinner-border-sm"></span></div>
+            }
+            else if (chatRoomsForShare.Count == 0)
+            {
+                <div class="text-muted">暂无可分享的聊天会话。</div>
+            }
+            else
+            {
+                <div class="list-group">
+                    @foreach (var room in chatRoomsForShare)
+                    {
+                        var isSelected = selectedShareRoomId == room.Id;
+                        <button type="button"
+                                class="list-group-item list-group-item-action d-flex align-items-center gap-2 @(isSelected ? "active" : "")"
+                                @onclick="() => selectedShareRoomId = room.Id">
+                            <img src="@room.GetCoverUrl()" class="rounded-circle border" style="width:34px;height:34px;object-fit:cover;" />
+                            <div class="flex-grow-1 text-start">
+                                <div class="fw-semibold">@room.Name</div>
+                                <div class="small @(isSelected ? "text-white-50" : "text-muted")">@GetShareRoomSubText(room)</div>
+                            </div>
+                        </button>
+                    }
+                </div>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(shareResourceMessage))
+            {
+                <div class="small text-muted mt-2">@shareResourceMessage</div>
+            }
+
+            <div class="d-flex justify-content-end gap-2 mt-3">
+                <button class="btn btn-outline-secondary btn-sm" @onclick="CloseShareResourcePanel">取消</button>
+                <button class="btn btn-success btn-sm" @onclick="ShareResourceToChatAsync" disabled="@(isSharingResource || chatRoomsForShare.Count == 0 || string.IsNullOrWhiteSpace(selectedShareRoomId))">
+                    @if (isSharingResource)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1"></span>
+                    }
+                    确认分享
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+                                </div>
+                                @if (AuthService.IsAuthenticated && AuthService.IsInRole("Admin"))
+                                {
+                                    <div class="d-flex justify-content-between align-items-start mt-2 gap-2">
+                                        <div class="d-flex gap-2 flex-wrap">
+                                            @if (imageUrls.Count > 0)
+                                            {
+                                                @for (var i = 0; i < imageUrls.Count; i++)
+                                                {
+                                                    var idx = i;
+                                                    <img src="@imageUrls[idx]" class="rounded border @(currentImageIndex == idx ? "border-primary border-2" : "")" style="width: 72px; height: 54px; object-fit: cover; cursor: pointer;" @onclick="() => currentImageIndex = idx" alt="thumb-@idx" />
+                                                }
+                                            }
+                                        </div>
+
+                                        <div class="add-photo-wrap ms-auto">
+                                            <button type="button" class="btn btn-outline-primary btn-sm add-photo-btn d-flex flex-column align-items-center justify-content-center" @onclick="TriggerAddPhoto">
+                                                <i class="bi bi-plus-lg"></i>
+                                                <span class="small mt-1">添加图片</span>
+                                            </button>
+                                            <InputFile id="resource-photo-input" OnChange="HandleUserPhotoUpload" class="d-none" accept="image/*" multiple />
+                                            @if (isPhotoUploading)
+                                            {
+                                                <div class="mt-2">
+                                                    <span class="spinner-border spinner-border-sm text-primary" role="status"></span>
+                                                </div>
+                                            }
+                                        </div>
+
+
+                                    </div>
+                                }
+                            </div>
+                            <div class="col-md-5">
+                                <div class="fs-2 fw-bold text-success">@DisplayRating.ToString("0.0")<span class="fs-6 text-muted"> 分</span></div>
+                                <div class="text-success mb-2">
+                                    @for (var i = 1; i <= 5; i++)
+                                    {
+                                        var threshold = i - 0.5;
+                                        if (DisplayRating >= i)
+                                        {
+                                            <i class="bi bi-star-fill"></i>
+                                        }
+                                        else if (DisplayRating >= threshold)
+                                        {
+                                            <i class="bi bi-star-half"></i>
+                                        }
+                                        else
+                                        {
+                                            <i class="bi bi-star-fill text-secondary"></i>
+                                        }
+                                    }
+                                    <span class="text-muted ms-2">@reviewCount 条点评</span>
+                                </div>
+                                @if (Type != "beautiful-villages")
+                                {
+                                    <div class="p-2 bg-light border rounded mb-3">
+                                        <div class="text-warning fs-4 fw-bold">@GetPriceText()</div>
+                                    </div>
+                                }
+                                <div id="baiduMap" style="height: 170px; background-color: #eee; width: 100%;" class="rounded border"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card border-0 shadow-sm mb-3">
+                    <div class="card-body">
+                        <h5 class="mb-3">景点介绍</h5>
+                        <p style="white-space: pre-wrap;">@baseResource.Description</p>
+                        <ul class="list-unstyled mb-0 text-muted">
+                            <li><strong>地址：</strong>@baseResource.Address</li>
+                            @if (Type == "attractions" && attraction != null)
+                            {
+                                <li><strong>开放时间：</strong>@attraction.OpeningHours</li>
+                                <li><strong>门票：</strong>@attraction.TicketPrice</li>
+                            }
+                            else if (Type == "beautiful-villages" && beautifulVillage != null)
+                            {
+                                <li><strong>村镇类型：</strong>@beautifulVillage.VillageType</li>
+                                <li><strong>著名景点或特色：</strong>@beautifulVillage.FamousFor</li>
+                            }
+                        </ul>
+                    </div>
+                </div>
+              @*   @if (AuthService.IsAuthenticated && AuthService.IsInRole("Admin"))
+                {
+                    <div class="card border-0 shadow-sm mb-3">
+                        <div class="card-body">
+                            @if (resourcePhotos.Count == 0)
+                            {
+                                <div class="text-muted">暂无用户上传照片。</div>
+                            }
+                            else
+                            {
+                                <div class="row g-2">
+                                    @foreach (var p in resourcePhotos)
+                                    {
+                                        <div class="col-6 col-md-4 col-lg-3">
+                                            <div class="position-relative">
+                                                <img src="@GetImageUrl(p.Url)" class="w-100 rounded border" style="height: 110px; object-fit: cover; cursor: zoom-in;" @onclick="() => OpenGallery(imageUrls.FindIndex(x => x == GetImageUrl(p.Url)))" />
+                                                @if (AuthService.IsAuthenticated && AuthService.IsInRole("Admin"))
+                                                {
+                                                    <button class="btn btn-danger btn-sm position-absolute top-0 end-0 m-1" @onclick="() => DeletePhotoAsync(p.Id)">
+                                                        <i class="bi bi-trash"></i>
+                                                    </button>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                } *@
+
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body">
+                        <div class="review-header mb-3">
+                            <div class="review-tab active">点评</div>
+                        </div>
+
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                            <div class="d-flex flex-wrap gap-2 small review-filter-group">
+                                <button type="button" class="btn btn-sm @(reviewFilter == 0 ? "btn-success" : "btn-outline-secondary")" @onclick="() => SetReviewFilter(0)">全部(@resourceReviews.Count)</button>
+                                <button type="button" class="btn btn-sm @(reviewFilter == 5 ? "btn-success" : "btn-outline-secondary")" @onclick="() => SetReviewFilter(5)">五星(@resourceReviews.Count(r => r.Rating == 5))</button>
+                                <button type="button" class="btn btn-sm @(reviewFilter == 4 ? "btn-success" : "btn-outline-secondary")" @onclick="() => SetReviewFilter(4)">四星(@resourceReviews.Count(r => r.Rating == 4))</button>
+                                <button type="button" class="btn btn-sm @(reviewFilter == 3 ? "btn-success" : "btn-outline-secondary")" @onclick="() => SetReviewFilter(3)">三星(@resourceReviews.Count(r => r.Rating == 3))</button>
+                                <button type="button" class="btn btn-sm @(reviewFilter == 2 ? "btn-success" : "btn-outline-secondary")" @onclick="() => SetReviewFilter(2)">二星(@resourceReviews.Count(r => r.Rating == 2))</button>
+                                <button type="button" class="btn btn-sm @(reviewFilter == 1 ? "btn-success" : "btn-outline-secondary")" @onclick="() => SetReviewFilter(1)">一星(@resourceReviews.Count(r => r.Rating == 1))</button>
+                            </div>
+                            <InputSelect class="form-select form-select-sm" style="width: 130px;" @bind-Value="reviewSort">
+                                <option value="latest">按综合排序</option>
+                                <option value="rating">按评分排序</option>
+                            </InputSelect>
+                        </div>
+
+                        @if (AuthService.IsAuthenticated)
+                        {
+                            <div class="border rounded p-3 mb-3 bg-light-subtle">
+                                <div class="row g-2">
+                                    <div class="col-md-3">
+                                        <label class="form-label small">评分</label>
+                                        <div class="d-flex align-items-center gap-1">
+                                            @for (var i = 1; i <= 5; i++)
+                                            {
+                                                var star = i;
+                                                <button type="button"
+                                                        class="btn btn-link p-0 rating-star-btn"
+                                                        @onclick="() => reviewInput.Rating = star"
+                                                        title="@($"{star}星")">
+                                                    <i class="bi bi-star-fill @(star <= reviewInput.Rating ? "text-success" : "text-secondary")"></i>
+                                                </button>
+                                            }
+                                            <span class="small text-muted ms-1">@reviewInput.Rating 星</span>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-9">
+                                        <label class="form-label small">点评内容</label>
+                                        <InputTextArea class="form-control" rows="2" @bind-Value="reviewInput.Content" placeholder="写下你的游玩体验..." />
+                                    </div>
+                                    <div class="col-12">
+                                        <button class="btn btn-primary btn-sm" @onclick="SubmitReviewAsync" disabled="@isSubmittingReview">
+                                            @if (isSubmittingReview)
+                                            {
+                                                <span class="spinner-border spinner-border-sm me-1"></span>
+                                            }
+                                            提交点评
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="alert alert-secondary py-2">登录后可发布点评。</div>
+                        }
+
+                        @if (resourceReviews.Count == 0)
+                        {
+                            <div class="text-muted">暂无点评，快来发布第一条吧。</div>
+                        }
+                        else
+                        {
+                            @foreach (var review in SortedReviews)
+                            {
+                                <div class="review-item border-bottom pb-3 mb-3">
+                                    <div class="d-flex gap-3">
+                                        <a href="@GetPublicProfileUrl(review.UserNo)" class="text-decoration-none">
+                                            <img src="@(string.IsNullOrWhiteSpace(review.AvatarUrl) ? "https://dummyimage.com/48x48/dee2e6/6c757d.jpg&text=U" : review.AvatarUrl)"
+                                                 class="rounded-circle border"
+                                                 style="width:48px;height:48px;object-fit:cover;" />
+                                        </a>
+                                        <div class="flex-grow-1">
+                                            <div class="d-flex justify-content-between align-items-center">
+                                                <a href="@GetPublicProfileUrl(review.UserNo)" class="fw-semibold text-decoration-none text-dark">@review.UserName</a>
+                                                @if (AuthService.IsAuthenticated && (AuthService.IsInRole("Admin") || review.UserId == AuthService.GetUserId()))
+                                                {
+                                                    <button class="btn btn-link text-danger btn-sm p-0" @onclick="() => DeleteReviewAsync(review.Id)">删除</button>
+                                                }
+                                            </div>
+                                            <div class="text-success small mb-1">
+                                                @(new string('★', review.Rating))<span class="text-muted ms-2">@review.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd")</span>
+                                            </div>
+                                            <div class="text-muted mt-1">@review.Content</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        }
+
+                        @if (isGalleryOpen)
+                        {
+                            <div class="gallery-overlay" @onclick="CloseGallery">
+                                <div class="gallery-dialog" @onclick:stopPropagation="true">
+                                    <button class="btn btn-light btn-sm position-absolute top-0 end-0 m-2" @onclick="CloseGallery"><i class="bi bi-x-lg"></i></button>
+                                    <img src="@CurrentImageUrl" class="w-100" style="max-height: 75vh; object-fit: contain;" />
+                                    @if (imageUrls.Count > 1)
+                                    {
+                                        <button class="btn btn-dark btn-sm position-absolute top-50 start-0 translate-middle-y ms-2" @onclick="PrevImage"><i class="bi bi-chevron-left"></i></button>
+                                        <button class="btn btn-dark btn-sm position-absolute top-50 end-0 translate-middle-y me-2" @onclick="NextImage"><i class="bi bi-chevron-right"></i></button>
+                                    }
+                                    <div class="d-flex gap-2 mt-2 flex-wrap justify-content-center">
+                                        @for (var i = 0; i < imageUrls.Count; i++)
+                                        {
+                                            var idx = i;
+                                            <img src="@imageUrls[idx]" class="rounded border @(currentImageIndex == idx ? "border-primary border-2" : "")" style="width: 72px; height: 54px; object-fit: cover; cursor: pointer;" @onclick="() => currentImageIndex = idx" />
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                @if (Type == "beautiful-villages")
+                {
+                    <div class="card border-0 shadow-sm mb-3">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6 class="mb-0">乡村景区</h6>
+                            </div>
+                            @if (villageAttractions.Count == 0)
+                            {
+                                <div class="text-muted small mb-2">暂无数据</div>
+                            }
+                            else
+                            {
+                                <div class="d-flex flex-column gap-3">
+                                    @foreach (var item in villageAttractions)
+                                    {
+                                        <a href="/resources/attractions/@item.Id" class="text-decoration-none text-dark">
+                                            <div class="card shadow-sm resource-mini-card resource-vertical-card">
+                                                <div class="row g-0">
+                                                    <div class="col-md-4">
+                                                        <img src="@GetImageUrl(item.CoverMediaId)" class="img-fluid rounded-start w-100 resource-vertical-image" alt="@item.Name" />
+                                                    </div>
+                                                    <div class="col-md-8">
+                                                        <div class="card-body h-100 d-flex flex-column justify-content-between">
+                                                            <div>
+                                                                <h6 class="card-title mb-1">@item.Name</h6>
+                                                                <div class="small text-muted mb-2">@item.Description</div>
+                                                            </div>
+                                                            <div class="d-flex justify-content-between align-items-center small">
+                                                                <span class="badge bg-info text-dark">景区</span>
+                                                                <span class="text-success">@item.AverageRating.ToString("0.0")</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </a>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="card border-0 shadow-sm mb-3">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6 class="mb-0">乡村美食</h6>
+                            </div>
+                            @if (villageDining.Count == 0)
+                            {
+                                <div class="text-muted small mb-2">暂无数据</div>
+                            }
+                            else
+                            {
+                                <div class="d-flex flex-column gap-3">
+                                    @foreach (var item in villageDining)
+                                    {
+                                        <a href="/resources/dining/@item.Id" class="text-decoration-none text-dark">
+                                            <div class="card shadow-sm resource-mini-card resource-vertical-card">
+                                                <div class="row g-0">
+                                                    <div class="col-md-4">
+                                                        <img src="@GetImageUrl(item.CoverMediaId)" class="img-fluid rounded-start w-100 resource-vertical-image" alt="@item.Name" />
+                                                    </div>
+                                                    <div class="col-md-8">
+                                                        <div class="card-body h-100 d-flex flex-column justify-content-between">
+                                                            <div>
+                                                                <h6 class="card-title mb-1">@item.Name</h6>
+                                                                <div class="small text-muted mb-2">@item.Description</div>
+                                                            </div>
+                                                            <div class="d-flex justify-content-between align-items-center small">
+                                                                <span class="badge bg-secondary">@item.CuisineType</span>
+                                                                <span class="text-success">@item.AverageRating.ToString("0.0")</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </a>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="card border-0 shadow-sm mb-3">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6 class="mb-0">乡村民宿</h6>
+                            </div>
+                            @if (villageAccommodations.Count == 0)
+                            {
+                                <div class="text-muted small mb-2">暂无数据</div>
+                            }
+                            else
+                            {
+                                <div class="d-flex flex-column gap-3">
+                                    @foreach (var item in villageAccommodations)
+                                    {
+                                        <a href="/resources/accommodations/@item.Id" class="text-decoration-none text-dark">
+                                            <div class="card shadow-sm resource-mini-card resource-vertical-card">
+                                                <div class="row g-0">
+                                                    <div class="col-md-4">
+                                                        <img src="@GetImageUrl(item.CoverMediaId)" class="img-fluid rounded-start w-100 resource-vertical-image" alt="@item.Name" />
+                                                    </div>
+                                                    <div class="col-md-8">
+                                                        <div class="card-body h-100 d-flex flex-column justify-content-between">
+                                                            <div>
+                                                                <h6 class="card-title mb-1">@item.Name</h6>
+                                                                <div class="small text-muted mb-2">@item.Description</div>
+                                                            </div>
+                                                            <div class="d-flex justify-content-between align-items-center small">
+                                                                <span class="badge bg-warning text-dark">民宿</span>
+                                                                <span class="text-success">@item.AverageRating.ToString("0.0")</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </a>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6 class="mb-0">乡村活动</h6>
+                            </div>
+                            @if (villageFolkActivities.Count == 0)
+                            {
+                                <div class="text-muted small mb-2">暂无数据</div>
+                            }
+                            else
+                            {
+                                <div class="d-flex flex-column gap-3">
+                                    @foreach (var item in villageFolkActivities)
+                                    {
+                                        <a href="/resources/folk/@item.Id" class="text-decoration-none text-dark">
+                                            <div class="card shadow-sm resource-mini-card resource-vertical-card">
+                                                <div class="row g-0">
+                                                    <div class="col-md-4">
+                                                        <img src="@GetImageUrl(item.CoverMediaId)" class="img-fluid rounded-start w-100 resource-vertical-image" alt="@item.Name" />
+                                                    </div>
+                                                    <div class="col-md-8">
+                                                        <div class="card-body h-100 d-flex flex-column justify-content-between">
+                                                            <div>
+                                                                <h6 class="card-title mb-1">@item.Name</h6>
+                                                                <div class="small text-muted mb-2">@item.Description</div>
+                                                            </div>
+                                                            <div class="d-flex justify-content-between align-items-center small">
+                                                                <span class="badge bg-primary">活动</span>
+                                                                <span class="text-success">@item.AverageRating.ToString("0.0")</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </a>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="card border-0 shadow-sm mb-3">
+                        <div class="card-body">
+                            <h6 class="mb-3">周边景点</h6>
+                            @if (nearbyAttractions.Count == 0)
+                            {
+                                <div class="text-muted small">暂无数据</div>
+                            }
+                            else
+                            {
+                                @foreach (var item in nearbyAttractions)
+                                {
+                                    <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                                        <a href="/resources/attractions/@item.Id" class="text-decoration-none">@item.Name</a>
+                                        <span class="text-success">@item.AverageRating.ToString("0.0")</span>
+                                    </div>
+                                }
+                            }
+                        </div>
+                    </div>
+
+                    <div class="card border-0 shadow-sm mb-3">
+                        <div class="card-body">
+                            <h6 class="mb-3">周边酒店</h6>
+                            @if (nearbyAccommodations.Count == 0)
+                            {
+                                <div class="text-muted small">暂无数据</div>
+                            }
+                            else
+                            {
+                                @foreach (var item in nearbyAccommodations)
+                                {
+                                    <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                                        <a href="/resources/accommodations/@item.Id" class="text-decoration-none">@item.Name</a>
+                                        <span class="text-success">@item.AverageRating.ToString("0.0")</span>
+                                    </div>
+                                }
+                            }
+                        </div>
+                    </div>
+
+                    <div class="card border-0 shadow-sm mb-3">
+                        <div class="card-body">
+                            <h6 class="mb-3">周边美食</h6>
+                            @if (nearbyDining.Count == 0)
+                            {
+                                <div class="text-muted small">暂无数据</div>
+                            }
+                            else
+                            {
+                                @foreach (var item in nearbyDining)
+                                {
+                                    <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                                        <a href="/resources/dining/@item.Id" class="text-decoration-none">@item.Name</a>
+                                        <span class="text-success">@item.AverageRating.ToString("0.0")</span>
+                                    </div>
+                                }
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@if (showJoinPlanPanel)
+{
+    <div class="gallery-overlay" @onclick="CloseJoinPlanPanel">
+        <div class="bg-white rounded p-3" style="width:min(560px,96vw);" @onclick:stopPropagation="true">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0">加入行程 - @baseResource.Name</h6>
+                <button class="btn btn-sm btn-light" @onclick="CloseJoinPlanPanel"><i class="bi bi-x-lg"></i></button>
+            </div>
+
+            <div class="mb-2">
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" checked="@(joinPlanMode == "new")" @onclick='@(() => joinPlanMode = "new")' />
+                    <label class="form-check-label">新建行程</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" checked="@(joinPlanMode == "existing")" @onclick='@(() => joinPlanMode = "existing")' />
+                    <label class="form-check-label">加入现有行程</label>
+                </div>
+            </div>
+
+            @if (joinPlanMode == "new")
+            {
+                <div class="mb-2">
+                    <label class="form-label small">行程名称</label>
+                    <InputText class="form-control" @bind-Value="newPlanTitle" />
+                </div>
+            }
+            else
+            {
+                <div class="mb-2">
+                    <label class="form-label small">选择行程</label>
+                    <InputSelect class="form-select" @bind-Value="selectedPlanId">
+                        @foreach (var p in myTourPlans)
+                        {
+                            <option value="@p.Id">@p.Title</option>
+                        }
+                    </InputSelect>
+                    @if (myTourPlans.Count == 0)
+                    {
+                        <div class="small text-muted mt-1">暂无现有行程，请切换为“新建行程”。</div>
+                    }
+                </div>
+            }
+
+            <div class="d-flex justify-content-end gap-2 mt-3">
+                <button class="btn btn-outline-secondary btn-sm" @onclick="CloseJoinPlanPanel">取消</button>
+                <button class="btn btn-primary btn-sm" @onclick="SaveJoinPlanAsync" disabled="@isJoinPlanSubmitting">确认加入</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .scenic-title {
+        color: #1f8b50;
+        font-weight: 700;
+    }
+
+    .gallery-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, .75);
+        z-index: 1050;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+    }
+
+    .gallery-dialog {
+        position: relative;
+        max-width: 1000px;
+        width: 100%;
+        background: #111;
+        border-radius: 10px;
+        padding: 12px;
+    }
+
+    .add-photo-wrap {
+        width: 54px;
+    }
+
+    .add-photo-btn {
+        width: 54px;
+        height: 54px;
+        padding: 0;
+    }
+
+    .review-header {
+        border-bottom: 1px solid #e9ecef;
+    }
+
+    .review-tab {
+        display: inline-block;
+        padding: 6px 2px;
+        margin-right: 20px;
+        font-weight: 600;
+    }
+
+    .review-tab.active {
+        color: #198754;
+        border-bottom: 2px solid #198754;
+    }
+
+    .review-filter-group .btn {
+        padding: 0.15rem 0.45rem;
+    }
+
+    .rating-star-btn {
+        text-decoration: none;
+        line-height: 1;
+    }
+
+    .rating-star-btn i {
+        font-size: 1.1rem;
+    }
+
+    .resource-mini-card {
+        transition: transform .2s ease, box-shadow .2s ease;
+    }
+
+    .resource-mini-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 .5rem 1.2rem rgba(0,0,0,.08) !important;
+    }
+
+    .resource-vertical-card {
+        overflow: hidden;
+    }
+
+    .resource-vertical-image {
+        height: 100%;
+        min-height: 180px;
+        object-fit: cover;
+    }
+
+    @@media (max-width: 767.98px) {
+        .resource-vertical-image {
+            min-height: 160px;
+            border-bottom-left-radius: 0;
+            border-bottom-right-radius: 0;
+        }
+    }
+</style>
+
+@code {
+    [Parameter]
+    public string Type { get; set; } = null!;
+    [Parameter]
+    public string Id { get; set; } = null!;
+
+    private bool isLoading = true;
+    private bool notFound = false;
+    private bool isDeleting = false;
+    private bool isEditing = false;
+    private bool isSaving = false;
+    private string? errorMsg = null;
+    private string? successMsg = null;
+
+    private ResourceDto baseResource = new();
+    private AttractionDto? attraction;
+    private AccommodationDto? accommodation;
+    private DiningDto? dining;
+    private FolkActivityDto? folkActivity;
+    private BeautifulVillageDto? beautifulVillage;
+    private readonly List<string> imageUrls = [];
+    private readonly List<AttractionDto> nearbyAttractions = [];
+    private readonly List<AccommodationDto> nearbyAccommodations = [];
+    private readonly List<DiningDto> nearbyDining = [];
+    private readonly List<BeautifulVillageDto> nearbyBeautifulVillages = [];
+    private readonly List<AttractionDto> villageAttractions = [];
+    private readonly List<AccommodationDto> villageAccommodations = [];
+    private readonly List<DiningDto> villageDining = [];
+    private readonly List<FolkActivityDto> villageFolkActivities = [];
+    private readonly List<ResourcePhotoDto> resourcePhotos = [];
+    private readonly List<ResourceReviewDto> resourceReviews = [];
+    private int currentImageIndex = 0;
+    private int reviewCount = 0;
+    private int reviewFilter = 0;
+    private string reviewSort = "latest";
+    private bool isGalleryOpen = false;
+    private bool isPhotoUploading = false;
+    private bool isEditCoverUploading = false;
+    private bool isSubmittingReview = false;
+    private int nearbyRadiusKm = 20;
+    private string? lastAlertKey;
+    private CancellationTokenSource? alertAutoCloseCts;
+    private bool showJoinPlanPanel = false;
+    private bool isJoinPlanSubmitting = false;
+    private bool showShareResourcePanel = false;
+    private bool isLoadingShareRooms = false;
+    private bool isSharingResource = false;
+    private string? currentUserId;
+    private string? selectedShareRoomId;
+    private string? shareResourceMessage;
+    private string joinPlanMode = "new";
+    private string? selectedPlanId;
+    private string newPlanTitle = string.Empty;
+    private readonly List<TourPlanDto> myTourPlans = [];
+    private readonly List<ChatRoomDto> chatRoomsForShare = [];
+    private bool mapInitialized = false;
+    private string? mapInitializedResourceId;
+    private ResourceReviewCreateDto reviewInput = new() { Rating = 5, Content = string.Empty };
+    private AttractionCreateDto editAttraction = new() { Name = string.Empty };
+    private AccommodationCreateDto editAccommodation = new() { Name = string.Empty };
+    private DiningCreateDto editDining = new() { Name = string.Empty };
+    private FolkActivityCreateDto editFolk = new() { Name = string.Empty };
+    private BeautifulVillageCreateDto editBeautifulVillage = new() { Name = string.Empty };
+
+    private object currentEditModel => Type switch
+    {
+        "attractions" => editAttraction,
+        "accommodations" => editAccommodation,
+        "dining" => editDining,
+        "folk" => editFolk,
+        "beautiful-villages" => editBeautifulVillage,
+        _ => editAttraction
+    };
+
+    private string CurrentImageUrl => imageUrls.Count == 0
+        ? "https://dummyimage.com/900x500/dee2e6/6c757d.jpg&text=No+Image"
+        : imageUrls[currentImageIndex];
+
+    private double DisplayRating => reviewCount == 0 ? 5.0 : baseResource.AverageRating;
+
+    private IEnumerable<ResourceReviewDto> SortedReviews
+    {
+        get
+        {
+            IEnumerable<ResourceReviewDto> query = resourceReviews;
+            if (reviewFilter is >= 1 and <= 5)
+            {
+                query = query.Where(r => r.Rating == reviewFilter);
+            }
+
+            return reviewSort == "rating"
+                ? query.OrderByDescending(r => r.Rating).ThenByDescending(r => r.CreatedAt)
+                : query.OrderByDescending(r => r.CreatedAt);
+        }
+    }
+
+    private void SetReviewFilter(int rating)
+    {
+        reviewFilter = rating;
+    }
+
+    private async Task HandleEditCoverUpload(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        isEditCoverUploading = true;
+        errorMsg = null;
+        successMsg = null;
+        try
+        {
+            var uploaded = await PostService.UploadMediaWithIdAsync(file);
+
+            if (Type == "attractions")
+                editAttraction.CoverMediaId = uploaded.Id;
+            else if (Type == "accommodations")
+                editAccommodation.CoverMediaId = uploaded.Id;
+            else if (Type == "dining")
+                editDining.CoverMediaId = uploaded.Id;
+            else if (Type == "folk")
+                editFolk.CoverMediaId = uploaded.Id;
+            else if (Type == "beautiful-villages")
+                editBeautifulVillage.CoverMediaId = uploaded.Id;
+
+            successMsg = "封面图片上传成功。";
+        }
+        catch (Exception ex)
+        {
+            errorMsg = $"封面上传失败: {ex.Message}";
+        }
+        finally
+        {
+            isEditCoverUploading = false;
+        }
+    }
+
+    private async Task OpenJoinPlanPanelAsync()
+    {
+        if (!AuthService.IsAuthenticated)
+        {
+            Navigation.NavigateTo($"/login?returnUrl=/resources/{Type}/{Id}");
+            return;
+        }
+
+        newPlanTitle = $"{baseResource.Name}行程";
+        myTourPlans.Clear();
+        myTourPlans.AddRange(await TourPlanService.GetMyPlansAsync());
+        joinPlanMode = myTourPlans.Count == 0 ? "new" : "existing";
+        selectedPlanId = myTourPlans.FirstOrDefault()?.Id;
+        showJoinPlanPanel = true;
+    }
+
+    private async Task OpenShareResourcePanelAsync()
+    {
+        if (!AuthService.IsAuthenticated)
+        {
+            Navigation.NavigateTo($"/login?returnUrl=/resources/{Type}/{Id}");
+            return;
+        }
+
+        currentUserId = AuthService.GetUserId();
+        showShareResourcePanel = true;
+        isLoadingShareRooms = true;
+        shareResourceMessage = null;
+
+        try
+        {
+            var rooms = await ChatService.GetMyRoomsAsync();
+            chatRoomsForShare.Clear();
+            chatRoomsForShare.AddRange(rooms
+                .Where(r => !r.IsArchived)
+                .Where(r => r.IsGroup || r.Members.Any(m => m.UserId == currentUserId && m.IsActive)));
+
+            selectedShareRoomId = chatRoomsForShare.FirstOrDefault()?.Id;
+        }
+        catch (Exception ex)
+        {
+            chatRoomsForShare.Clear();
+            selectedShareRoomId = null;
+            shareResourceMessage = $"加载聊天会话失败: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingShareRooms = false;
+        }
+    }
+
+    private void CloseShareResourcePanel()
+    {
+        showShareResourcePanel = false;
+        isLoadingShareRooms = false;
+        isSharingResource = false;
+        shareResourceMessage = null;
+    }
+
+    private async Task ShareResourceToChatAsync()
+    {
+        if (string.IsNullOrWhiteSpace(selectedShareRoomId)) return;
+
+        isSharingResource = true;
+        shareResourceMessage = null;
+        try
+        {
+            var cover = imageUrls.FirstOrDefault() ?? string.Empty;
+            await ChatService.SendMessageAsync(new ChatMessageCreateDto
+            {
+                ChatRoomId = selectedShareRoomId,
+                Type = ChatMessageType.Link,
+                Content = $"SHARE_RESOURCE|{Type}|{Id}|{Uri.EscapeDataString(baseResource.Name)}|{Uri.EscapeDataString(cover)}|{DisplayRating:0.0}"
+            });
+
+            await ResourceService.TrackResourceInteractionAsync(Id, "Share", $"detail:{Type}");
+
+            shareResourceMessage = "已分享景点。";
+            showShareResourcePanel = false;
+        }
+        catch (Exception ex)
+        {
+            shareResourceMessage = $"分享失败: {ex.Message}";
+        }
+        finally
+        {
+            isSharingResource = false;
+        }
+    }
+
+    private string GetShareRoomSubText(ChatRoomDto room)
+    {
+        if (room.IsGroup)
+        {
+            return $"群聊 · 群号 {room.RoomNo}";
+        }
+
+        var other = room.Members.FirstOrDefault(m => m.UserId != currentUserId);
+        return $"好友ID: {(other?.UserNo ?? "未知")}";
+    }
+
+    private void CloseJoinPlanPanel()
+    {
+        showJoinPlanPanel = false;
+    }
+
+    private async Task SaveJoinPlanAsync()
+    {
+        isJoinPlanSubmitting = true;
+        errorMsg = null;
+        successMsg = null;
+        var spot = string.IsNullOrWhiteSpace(baseResource.Address) ? baseResource.Name : $"{baseResource.Name}（{baseResource.Address}）";
+
+        try
+        {
+            if (joinPlanMode == "new")
+            {
+                if (string.IsNullOrWhiteSpace(newPlanTitle))
+                {
+                    errorMsg = "请填写行程名称。";
+                    return;
+                }
+
+                var created = await TourPlanService.CreateAsync(new TourPlanUpsertDto
+                {
+                    Title = newPlanTitle.Trim(),
+                    StartAddress = spot,
+                    Waypoints = [],
+                    RouteMode = "driving",
+                    ReturnToStart = false
+                });
+
+                if (created == null)
+                {
+                    errorMsg = "创建行程失败。";
+                    return;
+                }
+            }
+            else
+            {
+                var plan = myTourPlans.FirstOrDefault(x => x.Id == selectedPlanId);
+                if (plan == null)
+                {
+                    errorMsg = "请选择要加入的行程。";
+                    return;
+                }
+
+                var waypoints = plan.Waypoints?.ToList() ?? [];
+                if (!waypoints.Contains(spot, StringComparer.OrdinalIgnoreCase))
+                {
+                    waypoints.Add(spot);
+                }
+
+                var updated = await TourPlanService.UpdateAsync(plan.Id, new TourPlanUpsertDto
+                {
+                    Title = plan.Title,
+                    StartAddress = string.IsNullOrWhiteSpace(plan.StartAddress) ? spot : plan.StartAddress,
+                    Waypoints = waypoints,
+                    RouteMode = "driving",
+                    ReturnToStart = plan.ReturnToStart
+                });
+
+                if (updated == null)
+                {
+                    errorMsg = "加入现有行程失败。";
+                    return;
+                }
+            }
+
+            successMsg = "已加入行程。";
+            showJoinPlanPanel = false;
+        }
+        catch (Exception ex)
+        {
+            errorMsg = $"加入行程失败: {ex.Message}";
+        }
+        finally
+        {
+            isJoinPlanSubmitting = false;
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (OperatingSystem.IsBrowser())
+        {
+            await AuthService.InitializeAsync();
+        }
+
+        await LoadData();
+    }
+
+    private async Task TriggerAddPhoto()
+    {
+        await JSRuntime.InvokeVoidAsync("eval", "document.getElementById('resource-photo-input')?.click();");
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!isLoading
+            && !notFound
+            && baseResource != null
+            && baseResource.Latitude != 0
+            && (!mapInitialized || mapInitializedResourceId != baseResource.Id))
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("initBaiduMap", "baiduMap", baseResource.Latitude, baseResource.Longitude, baseResource.Name);
+                mapInitialized = true;
+                mapInitializedResourceId = baseResource.Id;
+            }
+            catch { }
+        }
+
+        if (!string.IsNullOrWhiteSpace(errorMsg) || !string.IsNullOrWhiteSpace(successMsg))
+        {
+            var currentKey = $"{errorMsg}||{successMsg}";
+            if (currentKey != lastAlertKey)
+            {
+                lastAlertKey = currentKey;
+                StartAlertAutoClose();
+            }
+        }
+        else
+        {
+            lastAlertKey = null;
+        }
+    }
+
+    private void StartAlertAutoClose()
+    {
+        alertAutoCloseCts?.Cancel();
+        alertAutoCloseCts?.Dispose();
+        alertAutoCloseCts = new CancellationTokenSource();
+        _ = AutoCloseAlertAsync(alertAutoCloseCts.Token);
+    }
+
+    private async Task AutoCloseAlertAsync(CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(5000, token);
+            errorMsg = null;
+            successMsg = null;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (TaskCanceledException)
+        {
+        }
+    }
+
+    public void Dispose()
+    {
+        alertAutoCloseCts?.Cancel();
+        alertAutoCloseCts?.Dispose();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        notFound = false;
+        mapInitialized = false;
+        try
+        {
+            if (Type == "attractions")
+            {
+                attraction = await ResourceService.GetAttractionAsync(Id);
+                if (attraction != null) baseResource = attraction; else notFound = true;
+            }
+            else if (Type == "accommodations")
+            {
+                accommodation = await ResourceService.GetAccommodationAsync(Id);
+                if (accommodation != null) baseResource = accommodation; else notFound = true;
+            }
+            else if (Type == "dining")
+            {
+                dining = await ResourceService.GetDiningDetailAsync(Id);
+                if (dining != null) baseResource = dining; else notFound = true;
+            }
+            else if (Type == "folk")
+            {
+                folkActivity = await ResourceService.GetFolkActivityAsync(Id);
+                if (folkActivity != null) baseResource = folkActivity; else notFound = true;
+            }
+            else if (Type == "beautiful-villages")
+            {
+                beautifulVillage = await ResourceService.GetBeautifulVillageAsync(Id);
+                if (beautifulVillage != null) baseResource = beautifulVillage; else notFound = true;
+            }
+            else
+            {
+                notFound = true;
+            }
+
+            if (!notFound)
+            {
+                await LoadResourcePhotosAsync();
+                await LoadResourceReviewsAsync();
+                BuildImageGallery();
+                InitializeEditModels();
+                await LoadSidebarDataAsync();
+
+                if (AuthService.IsAuthenticated)
+                {
+                    try
+                    {
+                        await ResourceService.TrackResourceInteractionAsync(Id, "View", $"detail:{Type}");
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+        }
+        catch
+        {
+            notFound = true;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadResourceReviewsAsync()
+    {
+        resourceReviews.Clear();
+        try
+        {
+            var reviews = await ResourceService.GetResourceReviewsAsync(Id);
+            resourceReviews.AddRange(reviews);
+            reviewCount = resourceReviews.Count;
+        }
+        catch
+        {
+            reviewCount = 0;
+        }
+    }
+
+    private async Task SubmitReviewAsync()
+    {
+        if (!AuthService.IsAuthenticated)
+        {
+            errorMsg = "请先登录后再发布点评。";
+            return;
+        }
+
+        if (reviewInput.Rating < 1 || reviewInput.Rating > 5)
+        {
+            errorMsg = "评分范围为 1-5。";
+            return;
+        }
+
+        isSubmittingReview = true;
+        errorMsg = null;
+        successMsg = null;
+        try
+        {
+            await ResourceService.UpsertResourceReviewAsync(Id, reviewInput);
+            reviewInput.Content = string.Empty;
+            await LoadData();
+            successMsg = "点评已提交。";
+        }
+        catch (Exception ex)
+        {
+            errorMsg = $"提交点评失败: {ex.Message}";
+        }
+        finally
+        {
+            isSubmittingReview = false;
+        }
+    }
+
+    private async Task DeleteReviewAsync(string reviewId)
+    {
+        try
+        {
+            errorMsg = null;
+            successMsg = null;
+            await ResourceService.DeleteResourceReviewAsync(Id, reviewId);
+            await LoadData();
+            successMsg = "点评已删除。";
+        }
+        catch (Exception ex)
+        {
+            errorMsg = $"删除点评失败: {ex.Message}";
+        }
+    }
+
+    private async Task LoadSidebarDataAsync()
+    {
+        nearbyAttractions.Clear();
+        nearbyAccommodations.Clear();
+        nearbyDining.Clear();
+        nearbyBeautifulVillages.Clear();
+        villageAttractions.Clear();
+        villageAccommodations.Clear();
+        villageDining.Clear();
+        villageFolkActivities.Clear();
+
+        try
+        {
+            if (Type == "beautiful-villages")
+            {
+                await LoadVillageRelatedResourcesAsync();
+                return;
+            }
+
+            if (baseResource.Latitude == 0 || baseResource.Longitude == 0) return;
+
+            var lat = baseResource.Latitude;
+            var lng = baseResource.Longitude;
+
+            var attractionsList = await ResourceService.GetAttractionsAsync();
+            nearbyAttractions.AddRange(attractionsList
+                .Where(x => !(Type == "attractions" && x.Id == Id))
+                .Where(x => x.Latitude != 0 && x.Longitude != 0)
+                .Select(x => new { Item = x, Distance = GetDistanceKm(lat, lng, x.Latitude, x.Longitude) })
+                .Where(x => x.Distance <= nearbyRadiusKm)
+                .OrderBy(x => x.Distance)
+                .Take(5)
+                .Select(x => x.Item));
+
+            var accommodations = await ResourceService.GetAccommodationsAsync();
+            nearbyAccommodations.AddRange(accommodations
+                .Where(x => !(Type == "accommodations" && x.Id == Id))
+                .Where(x => x.Latitude != 0 && x.Longitude != 0)
+                .Select(x => new { Item = x, Distance = GetDistanceKm(lat, lng, x.Latitude, x.Longitude) })
+                .Where(x => x.Distance <= nearbyRadiusKm)
+                .OrderBy(x => x.Distance)
+                .Take(5)
+                .Select(x => x.Item));
+
+            var diningList = await ResourceService.GetDiningAsync();
+            nearbyDining.AddRange(diningList
+                .Where(x => !(Type == "dining" && x.Id == Id))
+                .Where(x => x.Latitude != 0 && x.Longitude != 0)
+                .Select(x => new { Item = x, Distance = GetDistanceKm(lat, lng, x.Latitude, x.Longitude) })
+                .Where(x => x.Distance <= nearbyRadiusKm)
+                .OrderBy(x => x.Distance)
+                .Take(5)
+                .Select(x => x.Item));
+
+            var villages = await ResourceService.GetBeautifulVillagesAsync();
+            nearbyBeautifulVillages.AddRange(villages
+                .Where(x => !(Type == "beautiful-villages" && x.Id == Id))
+                .Where(x => x.Latitude != 0 && x.Longitude != 0)
+                .Select(x => new { Item = x, Distance = GetDistanceKm(lat, lng, x.Latitude, x.Longitude) })
+                .Where(x => x.Distance <= nearbyRadiusKm)
+                .OrderBy(x => x.Distance)
+                .Take(5)
+                .Select(x => x.Item));
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task LoadVillageRelatedResourcesAsync()
+    {
+        var villageTag = GetVillageTag();
+        if (string.IsNullOrWhiteSpace(villageTag)) return;
+
+        var attractions = await ResourceService.GetAttractionsAsync(1, 200);
+        villageAttractions.AddRange(attractions.Where(x => HasVillageTag(x.Tags, villageTag)));
+
+        var accommodations = await ResourceService.GetAccommodationsAsync(1, 200);
+        villageAccommodations.AddRange(accommodations.Where(x => HasVillageTag(x.Tags, villageTag)));
+
+        var dining = await ResourceService.GetDiningAsync(1, 200);
+        villageDining.AddRange(dining.Where(x => HasVillageTag(x.Tags, villageTag)));
+
+        var folk = await ResourceService.GetFolkActivitiesAsync(1, 200);
+        villageFolkActivities.AddRange(folk.Where(x => HasVillageTag(x.Tags, villageTag)));
+    }
+
+    private string GetVillageTag() => $"village:{Id}";
+
+    private static bool HasVillageTag(string? tags, string villageTag)
+    {
+        if (string.IsNullOrWhiteSpace(tags) || string.IsNullOrWhiteSpace(villageTag)) return false;
+
+        return tags
+            .Split([',', '，', ';', '；', '|', '/', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Any(x => string.Equals(x, villageTag, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static double GetDistanceKm(double lat1, double lng1, double lat2, double lng2)
+    {
+        const double earthRadiusKm = 6371d;
+        static double ToRadians(double degree) => degree * Math.PI / 180d;
+
+        var dLat = ToRadians(lat2 - lat1);
+        var dLng = ToRadians(lng2 - lng1);
+        var a = Math.Pow(Math.Sin(dLat / 2), 2) +
+                Math.Cos(ToRadians(lat1)) * Math.Cos(ToRadians(lat2)) *
+                Math.Pow(Math.Sin(dLng / 2), 2);
+        var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+        return earthRadiusKm * c;
+    }
+
+    private void BuildImageGallery()
+    {
+        imageUrls.Clear();
+        currentImageIndex = 0;
+
+        if (!string.IsNullOrWhiteSpace(baseResource.CoverMediaId))
+        {
+            var items = baseResource.CoverMediaId
+                .Split([',', ';', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var item in items)
+            {
+                var url = GetImageUrl(item);
+                if (!imageUrls.Contains(url, StringComparer.OrdinalIgnoreCase))
+                {
+                    imageUrls.Add(url);
+                }
+            }
+        }
+
+        foreach (var photo in resourcePhotos)
+        {
+            var url = GetImageUrl(photo.Url);
+            if (!imageUrls.Contains(url, StringComparer.OrdinalIgnoreCase))
+            {
+                imageUrls.Add(url);
+            }
+        }
+    }
+
+    private async Task LoadResourcePhotosAsync()
+    {
+        resourcePhotos.Clear();
+        try
+        {
+            var photos = await ResourceService.GetResourcePhotosAsync(Id);
+            resourcePhotos.AddRange(photos);
+        }
+        catch
+        {
+        }
+    }
+
+    private void OpenGallery(int index)
+    {
+        if (imageUrls.Count == 0) return;
+        if (index < 0 || index >= imageUrls.Count) index = 0;
+        currentImageIndex = index;
+        isGalleryOpen = true;
+    }
+
+    private void CloseGallery()
+    {
+        isGalleryOpen = false;
+    }
+
+    private async Task HandleUserPhotoUpload(InputFileChangeEventArgs e)
+    {
+        if (!AuthService.IsAuthenticated)
+        {
+            errorMsg = "请先登录后再上传图片。";
+            return;
+        }
+
+        var files = e.GetMultipleFiles();
+        if (files.Count == 0) return;
+
+        isPhotoUploading = true;
+        errorMsg = null;
+        successMsg = null;
+        try
+        {
+            foreach (var file in files)
+            {
+                var uploaded = await PostService.UploadMediaWithIdAsync(file);
+                await ResourceService.AddResourcePhotoAsync(Id, uploaded.Id);
+            }
+
+            await LoadResourcePhotosAsync();
+            BuildImageGallery();
+            successMsg = "图片上传成功。";
+        }
+        catch (Exception ex)
+        {
+            errorMsg = $"上传失败: {ex.Message}";
+        }
+        finally
+        {
+            isPhotoUploading = false;
+        }
+    }
+
+    private async Task DeletePhotoAsync(string photoId)
+    {
+        if (!AuthService.IsAuthenticated || !AuthService.IsInRole("Admin"))
+        {
+            errorMsg = "只有管理员可以删除图片。";
+            return;
+        }
+
+        try
+        {
+            errorMsg = null;
+            successMsg = null;
+
+            await ResourceService.DeleteResourcePhotoAsync(Id, photoId);
+            await LoadResourcePhotosAsync();
+            BuildImageGallery();
+            successMsg = "图片已删除。";
+        }
+        catch (Exception ex)
+        {
+            errorMsg = $"删除图片失败: {ex.Message}";
+        }
+    }
+
+    private void PrevImage()
+    {
+        if (imageUrls.Count <= 1) return;
+        currentImageIndex = (currentImageIndex - 1 + imageUrls.Count) % imageUrls.Count;
+    }
+
+    private void NextImage()
+    {
+        if (imageUrls.Count <= 1) return;
+        currentImageIndex = (currentImageIndex + 1) % imageUrls.Count;
+    }
+
+    private string GetPriceText()
+    {
+        if (Type == "attractions" && !string.IsNullOrWhiteSpace(attraction?.TicketPrice))
+            return attraction.TicketPrice!;
+        if (Type == "dining" && !string.IsNullOrWhiteSpace(dining?.PriceRange))
+            return dining.PriceRange!;
+        return "¥ 面议";
+    }
+
+    private void GoBack()
+    {
+        Navigation.NavigateTo("/resources");
+    }
+
+    private void BeginEdit()
+    {
+        successMsg = null;
+        errorMsg = null;
+        InitializeEditModels();
+        isEditing = true;
+    }
+
+    private void CancelEdit()
+    {
+        isEditing = false;
+    }
+
+    private void InitializeEditModels()
+    {
+        if (attraction != null)
+        {
+            editAttraction = new AttractionCreateDto
+            {
+                Name = attraction.Name,
+                Description = attraction.Description,
+                Address = attraction.Address,
+                Latitude = attraction.Latitude,
+                Longitude = attraction.Longitude,
+                Tags = attraction.Tags,
+                CoverMediaId = attraction.CoverMediaId,
+                OpeningHours = attraction.OpeningHours,
+                TicketPrice = attraction.TicketPrice
+            };
+        }
+
+        if (accommodation != null)
+        {
+            editAccommodation = new AccommodationCreateDto
+            {
+                Name = accommodation.Name,
+                Description = accommodation.Description,
+                Address = accommodation.Address,
+                Latitude = accommodation.Latitude,
+                Longitude = accommodation.Longitude,
+                Tags = accommodation.Tags,
+                CoverMediaId = accommodation.CoverMediaId,
+                StarRating = accommodation.StarRating,
+                Amenities = accommodation.Amenities,
+                RoomTypes = accommodation.RoomTypes
+            };
+        }
+
+        if (dining != null)
+        {
+            editDining = new DiningCreateDto
+            {
+                Name = dining.Name,
+                Description = dining.Description,
+                Address = dining.Address,
+                Latitude = dining.Latitude,
+                Longitude = dining.Longitude,
+                Tags = dining.Tags,
+                CoverMediaId = dining.CoverMediaId,
+                CuisineType = dining.CuisineType,
+                PriceRange = dining.PriceRange,
+                SignatureDishes = dining.SignatureDishes
+            };
+        }
+
+        if (folkActivity != null)
+        {
+            editFolk = new FolkActivityCreateDto
+            {
+                Name = folkActivity.Name,
+                Description = folkActivity.Description,
+                Address = folkActivity.Address,
+                Latitude = folkActivity.Latitude,
+                Longitude = folkActivity.Longitude,
+                Tags = folkActivity.Tags,
+                CoverMediaId = folkActivity.CoverMediaId,
+                EventDate = folkActivity.EventDate,
+                Duration = folkActivity.Duration,
+                Organizer = folkActivity.Organizer
+            };
+        }
+
+        if (beautifulVillage != null)
+        {
+            editBeautifulVillage = new BeautifulVillageCreateDto
+            {
+                Name = beautifulVillage.Name,
+                Description = beautifulVillage.Description,
+                Address = beautifulVillage.Address,
+                Latitude = beautifulVillage.Latitude,
+                Longitude = beautifulVillage.Longitude,
+                Tags = beautifulVillage.Tags,
+                CoverMediaId = beautifulVillage.CoverMediaId,
+                VillageType = beautifulVillage.VillageType,
+                FamousFor = beautifulVillage.FamousFor
+            };
+        }
+    }
+
+    private async Task SaveEditAsync()
+    {
+        isSaving = true;
+        errorMsg = null;
+        successMsg = null;
+
+        try
+        {
+            if (Type == "attractions")
+            {
+                await ResourceService.UpdateAttractionAsync(Id, editAttraction);
+            }
+            else if (Type == "accommodations")
+            {
+                await ResourceService.UpdateAccommodationAsync(Id, editAccommodation);
+            }
+            else if (Type == "dining")
+            {
+                await ResourceService.UpdateDiningAsync(Id, editDining);
+            }
+            else if (Type == "folk")
+            {
+                await ResourceService.UpdateFolkActivityAsync(Id, editFolk);
+            }
+            else if (Type == "beautiful-villages")
+            {
+                await ResourceService.UpdateBeautifulVillageAsync(Id, editBeautifulVillage);
+            }
+
+            await LoadData();
+            isEditing = false;
+            successMsg = "修改成功。";
+        }
+        catch (Exception ex)
+        {
+            errorMsg = $"修改失败: {ex.Message}";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task DeleteResourceAsync()
+    {
+        try
+        {
+            isDeleting = true;
+            errorMsg = null;
+
+            if (Type == "attractions")
+            {
+                await ResourceService.DeleteAttractionAsync(Id);
+            }
+            else if (Type == "accommodations")
+            {
+                await ResourceService.DeleteAccommodationAsync(Id);
+            }
+            else if (Type == "dining")
+            {
+                await ResourceService.DeleteDiningAsync(Id);
+            }
+            else if (Type == "folk")
+            {
+                await ResourceService.DeleteFolkActivityAsync(Id);
+            }
+            else if (Type == "beautiful-villages")
+            {
+                await ResourceService.DeleteBeautifulVillageAsync(Id);
+            }
+
+            Navigation.NavigateTo("/resources");
+        }
+        catch (Exception ex)
+        {
+            errorMsg = $"删除失败: {ex.Message}";
+        }
+        finally
+        {
+            isDeleting = false;
+        }
+    }
+
+    private string GetImageUrl(string? mediaId)
+    {
+        if (string.IsNullOrEmpty(mediaId)) return "https://dummyimage.com/600x400/dee2e6/6c757d.jpg";
+        if (mediaId.StartsWith("http")) return mediaId;
+        var apiBase = Http.BaseAddress?.ToString().TrimEnd('/') ?? string.Empty;
+        if (mediaId.StartsWith('/')) return $"{apiBase}{mediaId}";
+        return $"{apiBase}/api/media/{mediaId}";
+    }
+
+    private static string GetPublicProfileUrl(string? userNo)
+    {
+        return string.IsNullOrWhiteSpace(userNo) ? "#" : $"/u/{userNo}";
+    }
+}

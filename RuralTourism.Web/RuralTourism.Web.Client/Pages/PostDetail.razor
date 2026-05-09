@@ -1,0 +1,848 @@
+@page "/posts/{Id}"
+@rendermode InteractiveWebAssembly
+@using System
+@using Microsoft.AspNetCore.Components
+@using RuralTourism.Web.Client.Models
+@using RuralTourism.Web.Client.Services
+@using Microsoft.AspNetCore.SignalR.Client
+@inject IJSRuntime JSRuntime
+@implements IAsyncDisposable
+@inject PostService PostService
+@inject ChatService ChatService
+@inject NavigationManager Navigation
+@inject AuthService AuthService
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+
+
+<PageTitle>@(post?.Title ?? "文章详情")</PageTitle>
+
+<div class="container article-container mt-4">
+    <div class="mb-4">
+        <a class="back-link" href="/" target="_blank">
+            <i class="bi bi-arrow-left"></i> 返回文章列表
+        </a>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center my-5 py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-3 text-muted">正在加载精彩内容...</p>
+        </div>
+    }
+    else if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger shadow-sm">
+            <h4 class="alert-heading">出错了</h4>
+            <p>@errorMessage</p>
+            <hr>
+            <button class="btn btn-outline-danger btn-sm" @onclick="LoadPostAsync">重试</button>
+        </div>
+    }
+    else if (post == null)
+    {
+        <div class="text-center my-5 py-5">
+            <div class="display-1 text-muted"><i class="bi bi-file-earmark-x"></i></div>
+            <p class="fs-4 text-muted mt-3">未找到对应文章</p>
+            <a href="/" class="btn btn-primary mt-3">发现更多文章</a>
+        </div>
+    }
+    else
+    {
+        <article class="animate-fade-in">
+            <header class="article-header">
+                <h1 class="article-title">@post.Title</h1>
+                <div class="article-meta d-flex justify-content-center align-items-center gap-3">
+                    <span><i class="bi bi-calendar3 me-1"></i> @GetPublicationDate(post)</span>
+                    @if (post.Status == PostStatus.Draft)
+                    {
+                        <span class="badge bg-warning text-dark">草稿</span>
+                    }
+                </div>
+
+                <div class="d-flex justify-content-center gap-3 mt-3">
+                    <button class="btn btn-sm @(post.IsLiked ? "btn-danger" : "btn-outline-danger")" @onclick="TogglePostLike">
+                        <i class="bi @(post.IsLiked ? "bi-heart-fill" : "bi-heart")"></i> @post.LikeCount
+                    </button>
+                    <button class="btn btn-sm @(post.IsCollected ? "btn-warning text-white" : "btn-outline-warning text-dark")" @onclick="TogglePostCollect">
+                        <i class="bi @(post.IsCollected ? "bi-star-fill" : "bi-star")"></i> @post.CollectCount
+                    </button>
+                    @if (CanDeletePost)
+                    {
+                        <button class="btn btn-sm btn-outline-danger" @onclick="DeletePostAsync">
+                            <i class="bi bi-trash me-1"></i>删除帖子
+                        </button>
+                    }
+                    @if (AuthService.IsAuthenticated)
+                    {
+                        <button class="btn btn-sm btn-outline-success" @onclick="OpenSharePostPanelAsync">
+                            <i class="bi bi-share me-1"></i>分享
+                        </button>
+                    }
+                </div>
+            </header>
+
+            @if (!string.IsNullOrWhiteSpace(post.CoverMediaId))
+            {
+                <img src="@post.CoverMediaId" class="article-cover" alt="文章封面" />
+            }
+
+            <section class="post-blocks">
+                @foreach (var block in post.Blocks.OrderBy(b => b.Order))
+                {
+                    <div class="post-block">
+                        @switch (block.Type)
+                        {
+                            case BlockType.Header:
+                            case BlockType.Header1:
+                            case BlockType.Header2:
+                                <h3 id="block-@block.Id">@block.Content</h3>
+                                break;
+                            case BlockType.Image:
+                                <figure class="text-center">
+                                    <img src="@block.Content" class="img-fluid" alt="@block.Caption" />
+                                    @if (!string.IsNullOrWhiteSpace(block.Caption))
+                                    {
+                                        <figcaption class="post-block-caption text-muted">@block.Caption</figcaption>
+                                    }
+                                </figure>
+                                break;
+                            case BlockType.Video:
+                                <div class="ratio ratio-16x9 rounded overflow-hidden shadow-sm">
+                                    <iframe src="@block.Content" title="视频内容" allowfullscreen="" frameborder="0"></iframe>
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(block.Caption))
+                                {
+                                    <p class="post-block-caption mt-2">@block.Caption</p>
+                                }
+                                break;
+                            case BlockType.UnorderedList:
+                                <ul class="article-list">
+                                    @foreach (var line in (block.Content ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                                    {
+                                        <li>@line.Trim()</li>
+                                    }
+                                </ul>
+                                break;
+                            case BlockType.OrderedList:
+                                <ol class="article-list">
+                                    @foreach (var line in (block.Content ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                                    {
+                                        <li>@line.Trim()</li>
+                                    }
+                                </ol>
+                                break;
+                            default:
+                                <div class="article-text-content">
+                                    @((MarkupString)(block.Content ?? ""))
+                                </div>
+                                break;
+                        }
+                    </div>
+                }
+            </section>
+        </article>
+
+        <hr class="my-5" />
+        <section class="comment-section mt-5 animate-fade-in pb-5">
+            <h3 class="mb-4">评论 @(comments != null ? $"({comments.Count})" : "")</h3>
+
+            @if (AuthService.IsAuthenticated)
+            {
+                <div id="main-comment-box" class="card mb-4 border-0 shadow-sm bg-light">
+                    <div class="card-body">
+                        <textarea class="form-control mb-2" rows="3" placeholder="写下你的评论..." @bind="newCommentContent"></textarea>
+                        <div class="d-flex justify-content-end">
+                            <button class="btn btn-primary btn-sm px-4" @onclick="SubmitCommentAsync" disabled="@(isSubmittingComment || string.IsNullOrWhiteSpace(newCommentContent))">
+                                @if (isSubmittingComment)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                                }
+                                发布评论
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="alert alert-info py-3 shadow-sm rounded-3">
+                    <i class="bi bi-info-circle me-2"></i> 请 <a href="/login" class="fw-bold">登录</a> 后参与评论
+                </div>
+            }
+
+            @if (comments == null)
+            {
+                <div class="d-flex justify-content-center py-5">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            }
+            else if (comments.Count == 0)
+            {
+                <div class="text-center text-muted py-5">
+                    <i class="bi bi-chat-dots display-4 d-block mb-3"></i>
+                    暂无评论，快来抢沙发吧！
+                </div>
+            }
+            else
+            {
+                <div class="comment-list">
+                    @foreach (var comment in comments)
+                    {
+                        <div class="comment-card-wrapper mb-2">
+                            @* 具体的评论内容实体，Hover只针对这部分 *@
+                            <div class="comment-body">
+                                @* 上半部分：头像、用户名、内容 *@
+                                <div class="comment-upper">
+                                    <a href="/u/@comment.AuthorUserNo" class="text-decoration-none">
+                                        <img src="@(string.IsNullOrEmpty(comment.AuthorAvatarUrl) ? UserConstants.DefaultAvatarUrl : comment.AuthorAvatarUrl)"
+                                             class="comment-avatar shadow-sm"
+                                             onerror="this.src='@UserConstants.DefaultAvatarUrl'" />
+                                    </a>
+                                    <div class="comment-user-info">
+                                        <a href="/u/@comment.AuthorUserNo" class="comment-username text-decoration-none">@comment.AuthorName</a>
+
+                                        <span class="comment-text">@comment.Content</span>
+                                    </div>
+                                </div>
+
+                                @* 下半部分：发布时间、点赞、点踩、回复 *@
+                                <div class="comment-lower">
+                                    <div class="comment-actions-left">
+                                        @* <span>@comment.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</span>注释 *@
+                                        <button class="action-item @(comment.IsLiked ? "text-danger" : "")" @onclick="() => ToggleCommentLike(comment)">
+                                            <i class="bi @(comment.IsLiked ? "bi-hand-thumbs-up-fill" : "bi-hand-thumbs-up")"></i> @(comment.LikeCount > 0 ? comment.LikeCount.ToString() : "点赞")
+                                        </button>
+                                        @if (AuthService.IsAuthenticated)
+                                        {
+                                            <button class="action-item" @onclick="() => StartReply(comment)">回复</button>
+                                        }
+                                    </div>
+                                </div>
+
+                                @* 更多操作按钮：也就是右上角三个点 *@
+                                <div class="dropdown more-action-btn">
+                                    <button class="btn btn-link btn-sm text-muted p-0 border-0" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                        <i class="bi bi-three-dots-vertical"></i>
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                                        @if (comment.AuthorId == currentUserId)
+                                        {
+                                            <li><button class="dropdown-item text-danger" @onclick="() => DeleteCommentAsync(comment.Id)"><i class="bi bi-trash3 me-2"></i> 删除回复</button></li>
+                                        }
+                                        else
+                                        {
+                                            <li><button class="dropdown-item" @onclick="@(() => Console.WriteLine("Report clicked"))"><i class="bi bi-flag me-2"></i> 举报</button></li>
+                                            <li><button class="dropdown-item" @onclick="@(() => Console.WriteLine("Block clicked"))"><i class="bi bi-person-x me-2"></i> 加入黑名单</button></li>
+                                        }
+                                    </ul>
+                                </div>
+                            </div>
+
+                            @* 回复框（一级评论：仅当没有选中具体楼中楼时显示） *@
+                            @if (replyModeId == comment.Id && replyModeReplyId == null)
+                            {
+                                <div class="reply-box mt-3 mb-2 p-3 bg-light rounded-3 shadow-sm animate-fade-in ms-5">
+                                    <textarea class="form-control mb-2" rows="2" placeholder="回复 @comment.AuthorName..." @bind="replyContent"></textarea>
+                                    <div class="d-flex justify-content-end gap-2">
+                                        <button class="btn btn-outline-secondary btn-sm" @onclick="() => replyModeId = null">取消</button>
+                                        <button class="btn btn-primary btn-sm px-3" @onclick="SubmitReplyAsync" disabled="@(isSubmittingComment || string.IsNullOrWhiteSpace(replyContent))">发送</button>
+                                    </div>
+                                </div>
+                            }
+
+                            @* 楼中楼回复列表 *@
+                            @if (comment.Replies != null && comment.Replies.Any())
+                            {
+                                <div class="reply-nested-container">
+                                    @foreach (var reply in comment.Replies)
+                                    {
+                                        <div class="reply-card">
+                                            <div class="comment-body">
+                                                <div class="comment-upper">
+                                                    <a href="/u/@reply.AuthorUserNo" class="text-decoration-none">
+                                                        <img src="@(string.IsNullOrEmpty(reply.AuthorAvatarUrl) ? UserConstants.DefaultAvatarUrl : reply.AuthorAvatarUrl)"
+                                                             class="comment-avatar shadow-sm" style="width: 24px; height: 24px;"
+                                                             onerror="this.src='@UserConstants.DefaultAvatarUrl'" />
+                                                    </a>
+                                                    <div class="comment-user-info">
+                                                        <a href="/u/@reply.AuthorUserNo" class="comment-username small text-decoration-none">@reply.AuthorName</a>
+                                                        <span class="comment-text small ms-1">@reply.Content</span>
+                                                    </div>
+                                                </div>
+                                                <div class="comment-lower" style="margin-left: 36px; margin-top: 4px;">
+                                                    <div class="comment-actions-left small">
+                                                        @* <span>@reply.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")注释</span> *@
+                                                        <button class="action-item @(reply.IsLiked ? "text-danger" : "")" @onclick="() => ToggleCommentLike(reply)">
+                                                            <i class="bi @(reply.IsLiked ? "bi-hand-thumbs-up-fill" : "bi-hand-thumbs-up")"></i> @(reply.LikeCount > 0 ? reply.LikeCount.ToString() : "点赞")
+                                                        </button>
+                                                        @if (AuthService.IsAuthenticated)
+                                                        {
+                                                            <button class="action-item" @onclick="() => StartReplyToReply(comment, reply)">回复</button>
+                                                        }
+                                                    </div>
+                                                </div>
+
+                                                <div class="dropdown more-action-btn">
+                                                    <button class="btn btn-link btn-sm text-muted p-0 border-0" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                                        <i class="bi bi-three-dots-vertical"></i>
+                                                    </button>
+                                                    <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                                                        @if (reply.AuthorId == currentUserId)
+                                                        {
+                                                            <li><button class="dropdown-item text-danger" @onclick="() => DeleteCommentAsync(reply.Id)"><i class="bi bi-trash3 me-2"></i> 删除回复</button></li>
+                                                        }
+                                                        else
+                                                        {
+                                                            <li><button class="dropdown-item" @onclick="@(() => Console.WriteLine("Report clicked"))"><i class="bi bi-flag me-2"></i> 举报</button></li>
+                                                            <li><button class="dropdown-item" @onclick="@(() => Console.WriteLine("Block clicked"))"><i class="bi bi-person-x me-2"></i> 加入黑名单</button></li>
+                                                        }
+
+
+                                                    </ul>
+                                                </div>
+                                            </div>
+
+                                            @* 回复框（楼中楼） *@
+                                            @if (replyModeReplyId == reply.Id)
+                                            {
+                                                <div class="reply-box mt-2 mb-2 p-3 bg-white rounded-3 shadow-sm animate-fade-in" style="margin-left: 44px;">
+                                                    @if (!string.IsNullOrEmpty(replyToUserName))
+                                                    {
+                                                        <div class="mb-2 text-primary small bg-light p-2 rounded border-start border-3 border-primary">
+                                                            <i class="bi bi-reply-fill"></i> 回复 <span class="fw-bold">@replyToUserName</span>
+                                                        </div>
+                                                    }
+                                                    <textarea class="form-control mb-2" rows="2" placeholder="输入回复内容..." @bind="replyContent"></textarea>
+                                                    <div class="d-flex justify-content-end gap-2">
+                                                        <button class="btn btn-outline-secondary btn-sm" @onclick="CancelReplyToReply">取消</button>
+                                                        <button class="btn btn-primary btn-sm px-3" @onclick="SubmitReplyAsync" disabled="@(isSubmittingComment || string.IsNullOrWhiteSpace(replyContent))">发送</button>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </section>
+
+        @if (AuthService.IsAuthenticated)
+        {
+            <div class="sticky-comment-bar @(isStickyBarVisible ? "visible" : "")">
+                <div class="container" style="max-width: 800px;">
+                    <div class="d-flex gap-2 align-items-center">
+                        <textarea class="form-control" rows="1" placeholder="发表你的评论..." @bind="newCommentContent" style="resize: none;"></textarea>
+                        <button class="btn btn-primary text-nowrap" @onclick="SubmitCommentAsync" disabled="@(isSubmittingComment || string.IsNullOrWhiteSpace(newCommentContent))">发送</button>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@if (showSharePostPanel)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">选择聊天分享帖子</h5>
+                    <button type="button" class="btn-close" @onclick="CloseSharePostPanel"></button>
+                </div>
+                <div class="modal-body">
+                    @if (isLoadingShareGroups)
+                    {
+                        <div class="text-center py-2"><span class="spinner-border spinner-border-sm"></span></div>
+                    }
+                    else if (chatRoomsForShare.Count == 0)
+                    {
+                        <div class="text-muted">暂无可分享的聊天会话。</div>
+                    }
+                    else
+                    {
+                        <div class="list-group">
+                            @foreach (var room in chatRoomsForShare)
+                            {
+                                var isSelected = selectedGroupRoomId == room.Id;
+                                <button type="button"
+                                        class="list-group-item list-group-item-action d-flex align-items-center gap-2 @(isSelected ? "active" : "")"
+                                        @onclick="() => SelectShareRoom(room.Id)">
+                                    <img src="@GetShareRoomAvatar(room)" class="rounded-circle border" style="width:34px;height:34px;object-fit:cover;" />
+                                    <div class="flex-grow-1 text-start">
+                                        <div class="fw-semibold">@room.Name</div>
+                                        <div class="small @(isSelected ? "text-white-50" : "text-muted")">@GetShareRoomSubText(room)</div>
+                                    </div>
+                                    @if (isSelected)
+                                    {
+                                        <i class="bi bi-check-circle-fill"></i>
+                                    }
+                                </button>
+                            }
+                        </div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(sharePostMessage))
+                    {
+                        <div class="small text-muted mt-2">@sharePostMessage</div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary" @onclick="CloseSharePostPanel">取消</button>
+                    <button class="btn btn-success" @onclick="SharePostToGroupAsync" disabled="@(isSharingPost || chatRoomsForShare.Count == 0 || string.IsNullOrWhiteSpace(selectedGroupRoomId))">
+                        @if (isSharingPost)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        确认分享
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public required string Id { get; set; }
+
+    private PostDetailDto? post;
+    private List<CommentDto>? comments;
+    private bool isLoading = true;
+    private string? errorMessage;
+    private HubConnection? hubConnection;
+    private string? _lastSubscribedId;
+
+    private string? newCommentContent;
+    private bool isSubmittingComment;
+    private string? replyModeId;
+    private string? replyModeReplyId;
+    private string? replyContent;
+    private string? currentUserId;
+    private string? replyToUserId;
+    private string? replyToUserName;
+    private bool isStickyBarVisible;
+    private DotNetObjectReference<PostDetail>? dotNetHelper;
+    private bool showSharePostPanel;
+    private bool isLoadingShareGroups;
+    private bool isSharingPost;
+    private string? selectedGroupRoomId;
+    private string? sharePostMessage;
+    private List<ChatRoomDto> chatRoomsForShare = [];
+
+    private bool CanDeletePost =>
+        post != null
+        && AuthService.IsAuthenticated
+        && (post.AuthorId == currentUserId || AuthService.IsInRole("Admin"));
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && AuthService.IsAuthenticated)
+        {
+            dotNetHelper = DotNetObjectReference.Create(this);
+            await JSRuntime.InvokeVoidAsync("initStickyCommentObserver", "main-comment-box", dotNetHelper);
+        }
+    }
+
+    private async Task DeletePostAsync()
+    {
+        if (!CanDeletePost || post == null) return;
+
+        var confirmed = await JSRuntime.InvokeAsync<bool>("confirm", "确定要删除这篇帖子吗？");
+        if (!confirmed) return;
+
+        try
+        {
+            await PostService.DeletePostAsync(post.Id);
+            Navigation.NavigateTo("/");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"删除失败: {ex.Message}";
+        }
+    }
+
+    private async Task OpenSharePostPanelAsync()
+    {
+        if (!AuthService.IsAuthenticated)
+        {
+            Navigation.NavigateTo($"/login?returnUrl=/posts/{Id}");
+            return;
+        }
+
+        showSharePostPanel = true;
+        isLoadingShareGroups = true;
+        sharePostMessage = null;
+        try
+        {
+            var rooms = await ChatService.GetMyRoomsAsync();
+            chatRoomsForShare = rooms
+                .Where(r => !r.IsArchived)
+                .Where(r => r.IsGroup || r.Members.Any(m => m.UserId == currentUserId && m.IsActive))
+                .ToList();
+            selectedGroupRoomId = chatRoomsForShare.FirstOrDefault()?.Id;
+        }
+        catch (Exception ex)
+        {
+            chatRoomsForShare = [];
+            selectedGroupRoomId = null;
+            sharePostMessage = $"加载群聊失败: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingShareGroups = false;
+        }
+    }
+
+    private void CloseSharePostPanel()
+    {
+        showSharePostPanel = false;
+        isLoadingShareGroups = false;
+        isSharingPost = false;
+        sharePostMessage = null;
+    }
+
+    private async Task SharePostToGroupAsync()
+    {
+        if (post == null || string.IsNullOrWhiteSpace(selectedGroupRoomId)) return;
+
+        isSharingPost = true;
+        sharePostMessage = null;
+        try
+        {
+            await ChatService.SendMessageAsync(new ChatMessageCreateDto
+            {
+                ChatRoomId = selectedGroupRoomId,
+                Type = ChatMessageType.Link,
+                Content = $"SHARE_POST|{post.Id}|{Uri.EscapeDataString(post.Title)}|{Uri.EscapeDataString(post.CoverMediaId ?? string.Empty)}"
+            });
+
+            sharePostMessage = "已分享到群聊。";
+            showSharePostPanel = false;
+        }
+        catch (Exception ex)
+        {
+            sharePostMessage = $"分享失败: {ex.Message}";
+        }
+        finally
+        {
+            isSharingPost = false;
+        }
+    }
+
+    private void SelectShareRoom(string roomId)
+    {
+        selectedGroupRoomId = roomId;
+    }
+
+    private static string GetShareRoomAvatar(ChatRoomDto room)
+    {
+        return room.GetCoverUrl();
+    }
+
+    private string GetShareRoomSubText(ChatRoomDto room)
+    {
+        if (room.IsGroup)
+        {
+            return $"群聊 · 群号 {room.RoomNo}";
+        }
+
+        var other = room.Members.FirstOrDefault(m => m.UserId != currentUserId);
+        return $"好友ID: {(other?.UserNo ?? "未知")}";
+    }
+
+    [JSInvokable]
+    public void OnCommentSectionVisibilityChanged(bool isVisible)
+    {
+        isStickyBarVisible = !isVisible;
+        StateHasChanged();
+    }
+
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!OperatingSystem.IsBrowser()) return;
+
+        try
+        {
+            await AuthService.InitializeAsync();
+            if (AuthService.IsAuthenticated)
+            {
+                currentUserId = AuthService.GetUserId();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"系统初始化失败: {ex.Message}";
+        }
+
+        await LoadPostAsync();
+        await LoadCommentsAsync();
+        await SetupSignalRAsync();
+    }
+
+    private async Task LoadCommentsAsync()
+    {
+        try
+        {
+            comments = await PostService.GetCommentsAsync(Id);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"加载评论失败: {ex.Message}");
+        }
+    }
+
+    private void StartReply(CommentDto comment)
+    {
+        replyModeId = comment.Id;
+        replyModeReplyId = null;
+        replyContent = string.Empty;
+        replyToUserId = null;
+        replyToUserName = null;
+    }
+
+    private async Task TogglePostLike()
+    {
+        if (post == null || !AuthService.IsAuthenticated) return;
+        var success = await PostService.TogglePostReactionAsync(Id, 0); // 0 = Like
+        if (success)
+        {
+            post = post with { IsLiked = true, LikeCount = post.LikeCount + 1 };
+        }
+        else
+        {
+            // Assumes toggle off
+            post = post with { IsLiked = false, LikeCount = Math.Max(0, post.LikeCount - 1) };
+        }
+    }
+
+    private async Task TogglePostCollect()
+    {
+        if (post == null || !AuthService.IsAuthenticated) return;
+        var success = await PostService.TogglePostReactionAsync(Id, 1); // 1 = Bookmark
+        if (success)
+        {
+            post = post with { IsCollected = true, CollectCount = post.CollectCount + 1 };
+        }
+        else
+        {
+            post = post with { IsCollected = false, CollectCount = Math.Max(0, post.CollectCount - 1) };
+        }
+    }
+
+    private async Task ToggleCommentLike(CommentDto comment)
+    {
+        if (!AuthService.IsAuthenticated) return;
+        var success = await PostService.ToggleCommentReactionAsync(comment.Id, 0);
+        if (success)
+        {
+            comment.IsLiked = true;
+            comment.LikeCount++;
+        }
+        else
+        {
+            comment.IsLiked = false;
+            comment.LikeCount = Math.Max(0, comment.LikeCount - 1);
+        }
+    }
+
+    private void StartReplyToReply(CommentDto parentComment, CommentDto reply)
+    {
+        replyModeId = parentComment.Id;
+        replyModeReplyId = reply.Id;
+        replyToUserId = reply.AuthorId;
+        replyToUserName = reply.AuthorName;
+        replyContent = string.Empty;
+    }
+
+    private void CancelReplyToReply()
+    {
+        replyModeId = null;
+        replyModeReplyId = null;
+        replyContent = string.Empty;
+        replyToUserId = null;
+        replyToUserName = null;
+    }
+
+    private async Task SubmitCommentAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newCommentContent)) return;
+        isSubmittingComment = true;
+        try
+        {
+            await PostService.CreateCommentAsync(Id, new CommentCreateDto { Content = newCommentContent });
+            newCommentContent = string.Empty;
+            await LoadCommentsAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"发表评论失败: {ex.Message}";
+        }
+        finally
+        {
+            isSubmittingComment = false;
+        }
+    }
+
+    private async Task SubmitReplyAsync()
+    {
+        if (string.IsNullOrWhiteSpace(replyContent) || replyModeId == null) return;
+        isSubmittingComment = true;
+        try
+        {
+            var contentToSend = replyContent;
+            if (!string.IsNullOrEmpty(replyToUserName))
+            {
+                contentToSend = $"回复 @{replyToUserName} :{replyContent}";
+            }
+
+            await PostService.CreateCommentAsync(Id, new CommentCreateDto
+            {
+                Content = contentToSend,
+                ParentCommentId = replyModeId,
+                ReplyToUserId = replyToUserId
+            });
+            replyContent = string.Empty;
+            replyModeId = null;
+            replyModeReplyId = null;
+            replyToUserId = null;
+            replyToUserName = null;
+            await LoadCommentsAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"回复失败: {ex.Message}";
+        }
+        finally
+        {
+            isSubmittingComment = false;
+        }
+    }
+
+    private async Task DeleteCommentAsync(string commentId)
+    {
+        try
+        {
+            await PostService.DeleteCommentAsync(commentId);
+            await LoadCommentsAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"删除失败: {ex.Message}";
+        }
+    }
+
+    private async Task SetupSignalRAsync()
+    {
+        if (hubConnection == null)
+        {
+            var apiBaseUrl = Configuration["BackendApi:BaseUrl"];
+            var hubUrl = string.IsNullOrWhiteSpace(apiBaseUrl)
+                ? Navigation.ToAbsoluteUri("/hubs/post").ToString()
+                : $"{apiBaseUrl.TrimEnd('/')}/hubs/post";
+
+            hubConnection = new HubConnectionBuilder()
+                .WithUrl(hubUrl)
+                .WithAutomaticReconnect()
+                .Build();
+
+            hubConnection.On<string>("PostUpdated", async (updatedId) =>
+            {
+                if (updatedId == Id)
+                {
+                    await LoadPostAsync();
+                    StateHasChanged();
+                }
+            });
+
+            hubConnection.On<string>("PostDeleted", (deletedId) =>
+            {
+                if (deletedId == Id)
+                {
+                    errorMessage = "该文章已被作者删除。";
+                    post = null;
+                    StateHasChanged();
+                }
+            });
+
+            try
+            {
+                await hubConnection.StartAsync();
+            }
+            catch (Exception)
+            {
+                // 连不上 Hub 不影响基础功能
+                return;
+            }
+        }
+
+        if (_lastSubscribedId != Id)
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(_lastSubscribedId))
+                {
+                    await hubConnection.SendAsync("LeavePostGroup", _lastSubscribedId);
+                }
+                await hubConnection.SendAsync("JoinPostGroup", Id);
+                _lastSubscribedId = Id;
+            }
+            catch { }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        dotNetHelper?.Dispose();
+
+        if (hubConnection is not null)
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(_lastSubscribedId))
+                {
+                    await hubConnection.SendAsync("LeavePostGroup", _lastSubscribedId);
+                }
+                await hubConnection.DisposeAsync();
+            }
+            catch { }
+        }
+    }
+
+
+    private async Task LoadPostAsync()
+
+    {
+        errorMessage = null;
+        post = null;
+        try
+        {
+            post = await PostService.GetPostAsync(Id);
+            if (post == null)
+            {
+                errorMessage = "未找到文章";
+            }
+            else
+            {
+                await PostService.TrackPostInteractionAsync(Id, "View", "detail");
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private string GetPublicationDate(PostDetailDto post)
+    {
+        var date = post.PublishedAt ?? post.CreatedAt;
+        return date.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+    }
+}

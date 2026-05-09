@@ -1,0 +1,233 @@
+@page "/posts/mine"
+@rendermode InteractiveWebAssembly
+@using RuralTourism.Web.Client.Models
+@using RuralTourism.Web.Client.Services
+@inject PostService PostService
+@inject NavigationManager Navigation
+@inject AuthService AuthService
+
+
+<PageTitle>我的游记</PageTitle>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3 class="mb-0">游记</h3>
+    <a href="/posts/drafts" target="_blank" class="btn btn-outline-secondary">
+        <i class="bi bi-file-earmark-text me-1"></i> 草稿箱
+    </a>
+</div>
+
+
+@if (isLoading)
+{
+    <div class="text-center my-5">
+        <div class="spinner-border text-primary" role="status"></div>
+        <p class="mt-2 text-muted">正在加载中...</p>
+    </div>
+}
+else if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger shadow-sm">
+        <p>加载失败: @errorMessage</p>
+        <div class="mt-3">
+            <button class="btn btn-primary btn-sm" @onclick="LoadAsync">重试</button>
+            <a href="/login" class="btn btn-outline-primary btn-sm ms-2">重新登录</a>
+        </div>
+    </div>
+}
+else if (posts == null || !posts.Any(p => p.Status == PostStatus.Published || p.Status == PostStatus.Private || p.Status == PostStatus.PendingReview))
+{
+    <div class="alert alert-info">你还没有公开、隐私或待审核的文章，<a href="/posts/edit" target="_blank">立即创建</a></div>
+}
+
+else
+{
+    <div class="list-group">
+        @foreach (var p in posts!.Where(p => p.Status == PostStatus.Published || p.Status == PostStatus.Private || p.Status == PostStatus.PendingReview))
+        {
+            <div class="list-group-item d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="mb-1">
+                        @p.Title
+                        @if (p.Status == PostStatus.Private)
+                        {
+                            <span class="badge bg-secondary ms-2" title="仅自己可见"><i class="bi bi-lock-fill"></i> 仅自己可见</span>
+                        }
+                        else if (p.Status == PostStatus.PendingReview)
+                        {
+                            <span class="badge bg-warning text-dark ms-2" title="等待管理员审核">待审核</span>
+                        }
+                    </h5>
+                    <small class="text-muted">发布于 @GetPublicationDate(p)</small>
+                    @if (p.Status == PostStatus.Draft && !string.IsNullOrWhiteSpace(p.RejectReason))
+                    {
+                        <div class="small text-danger mt-1">驳回原因：@p.RejectReason</div>
+                    }
+                </div>
+                <div class="d-flex gap-2">
+
+                    <a class="btn btn-sm btn-outline-primary" href="@($"/posts/{p.Id}")" target="_blank">查看</a>
+                    @if (p.Status == PostStatus.PendingReview)
+                    {
+                        <button class="btn btn-sm btn-outline-secondary" type="button" disabled title="帖子审核中，暂不可编辑">编辑</button>
+                    }
+                    else
+                    {
+                        <a class="btn btn-sm btn-outline-secondary" href="@($"/posts/edit/{p.Id}")" target="_blank">编辑</a>
+                    }
+                    <button class="btn btn-sm btn-outline-danger" @onclick="() => ConfirmDelete(p)">删除</button>
+                </div>
+
+            </div>
+        }
+    </div>
+}
+
+@if (postToDelete != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content text-center">
+                <div class="modal-header border-0">
+                    <h5 class="modal-title w-100 fw-bold">管理文章</h5>
+                    <button type="button" class="btn-close" @onclick="() => postToDelete = null"></button>
+                </div>
+                <div class="modal-body py-4">
+                    <p class="text-muted">文章：<strong>@postToDelete.Title</strong></p>
+                    <p>请选择您要执行的操作：</p>
+                </div>
+                <div class="modal-footer border-0 justify-content-center flex-column gap-2 pb-4">
+                    <button type="button" class="btn btn-outline-danger w-75" @onclick="DeletePostConfirmedAsync">彻底删除</button>
+                    @if (postToDelete?.Status == PostStatus.Published)
+                    {
+                        <button type="button" class="btn btn-outline-warning w-75" @onclick="SetToPrivateAsync">设为仅自己可见</button>
+                    }
+                    else if (postToDelete?.Status == PostStatus.Private)
+                    {
+                        <button type="button" class="btn btn-outline-success w-75" @onclick="SetToPublicAsync">设为公开可见</button>
+                    }
+                    <button type="button" class="btn btn-link text-secondary w-75 mt-2" @onclick="() => postToDelete = null">取消</button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+}
+
+
+@code {
+
+    private List<PostSummaryDto>? posts;
+    private bool isLoading = true;
+    private string? errorMessage;
+    private PostSummaryDto? postToDelete;
+
+    private void ConfirmDelete(PostSummaryDto post)
+    {
+        postToDelete = post;
+    }
+
+    private async Task DeletePostConfirmedAsync()
+    {
+        if (postToDelete == null) return;
+        try
+        {
+            await PostService.DeletePostAsync(postToDelete.Id);
+            postToDelete = null;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"删除失败: {ex.Message}";
+        }
+    }
+
+    private async Task SetToPrivateAsync()
+    {
+        if (postToDelete == null) return;
+        try
+        {
+            await PostService.SetPostStatusAsync(postToDelete.Id, PostStatus.Private);
+            postToDelete = null;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"操作失败: {ex.Message}";
+        }
+    }
+
+    private async Task SetToPublicAsync()
+    {
+        if (postToDelete == null) return;
+        try
+        {
+            await PostService.SetPostStatusAsync(postToDelete.Id, PostStatus.Published);
+            postToDelete = null;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"操作失败: {ex.Message}";
+        }
+    }
+
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        // 服务器预渲染时不加载数据，由 WASM 运行时接管
+        if (!OperatingSystem.IsBrowser())
+        {
+            isLoading = true;
+            return;
+        }
+
+        await InitAndLoadAsync();
+    }
+
+    private async Task InitAndLoadAsync()
+    {
+        try
+        {
+            await AuthService.InitializeAsync();
+            if (AuthService.IsAuthenticated)
+            {
+                await LoadAsync();
+            }
+            else
+            {
+                errorMessage = "未检测到有效的登录信息。请确保已登录。";
+                isLoading = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"认证初始化失败: {ex.Message}";
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        errorMessage = null;
+        isLoading = true;
+        try
+        {
+            posts = await PostService.GetMyPostsAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"获取文章数据失败: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private string GetPublicationDate(PostSummaryDto post)
+    {
+        var date = post.PublishedAt ?? post.CreatedAt;
+        return date.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+    }
+}
+

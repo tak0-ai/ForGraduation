@@ -1,0 +1,664 @@
+@page "/"
+@rendermode InteractiveWebAssembly
+@using RuralTourism.Web.Client.Models
+@using RuralTourism.Web.Client.Services
+@using Microsoft.AspNetCore.SignalR.Client
+@implements IAsyncDisposable
+@inject PostService PostService
+@inject ResourceService ResourceService
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+@inject AuthService AuthService
+
+<PageTitle>首页</PageTitle>
+<div class="container mt-4">
+    <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
+        <div>
+            <h1 class="mb-1">乡村游记</h1>
+            <p class="text-muted mb-0">为你精选的乡村生活分享</p>
+        </div>
+        <div class="home-search-box">
+            <div class="input-group">
+                <input class="form-control" placeholder="搜索帖子、景点" @bind="searchKeyword" @onkeydown="OnSearchKeyDown" />
+                <button class="btn btn-success" type="button" @onclick="SearchAsync" disabled="@isSearching">@(isSearching ? "搜索中..." : "搜索")</button>
+                <button class="btn btn-outline-secondary" type="button" @onclick="ResetSearchAsync" disabled="@(!isSearchMode && string.IsNullOrWhiteSpace(searchKeyword))">重置</button>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center my-5">
+            <div class="spinner-border text-primary" role="status"></div>
+        </div>
+    }
+    else if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger">@errorMessage</div>
+    }
+    else if (mixedCards.Count == 0)
+    {
+        <div class="alert alert-info">@(isSearchMode ? "未找到匹配的帖子或景点。" : "暂无内容，稍后再来刷新。")</div>
+    }
+    else
+    {
+        <div class="row g-4">
+            <div class="col-lg-8">
+                <div class="row">
+                    @foreach (var card in DisplayCards)
+                    {
+                        <div class="col-md-6 mb-4">
+                            <article class="card h-100 post-card p-3 position-relative shadow-sm transition-hover">
+                                <div class="card-body d-flex flex-column">
+                                    <h5 class="card-title fw-bold text-dark">@card.Title</h5>
+                                    <p class="text-muted small mb-3">@card.Meta</p>
+
+                                    <div class="post-excerpt">@card.Excerpt</div>
+
+                                    @if (card.Images.Count > 0)
+                                    {
+                                        <div class="image-preview-container">
+                                            @for (int i = 0; i < Math.Min(2, card.Images.Count); i++)
+                                            {
+                                                <img src="@card.Images[i]" alt="图片" class="preview-img" />
+                                            }
+                                        </div>
+                                    }
+
+                                    <a href="@card.Link" target="_blank" class="stretched-link" @onclick="() => TrackCardClickAsync(card)"></a>
+                                </div>
+                            </article>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="card shadow-sm h-100 ranking-panel">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5 class="mb-0 fw-bold text-success">热门乡村排行榜</h5>
+                            <span class="badge bg-success-subtle text-success">TOP 5</span>
+                        </div>
+
+                        @if (popularVillages.Count == 0)
+                        {
+                            <div class="text-muted small">暂无热门乡村数据。</div>
+                        }
+                        else
+                        {
+                            @for (var i = 0; i < Math.Min(5, popularVillages.Count); i++)
+                            {
+                                var village = popularVillages[i];
+                                <div class="d-flex gap-3 align-items-center py-2 border-bottom">
+                                    <div class="ranking-index">@(i + 1)</div>
+                                    <img src="@GetVillageCoverUrl(village.CoverMediaId)" class="rounded border" style="width: 56px; height: 56px; object-fit: cover;" />
+                                    <div class="flex-grow-1">
+                                        <div class="fw-semibold text-dark">@village.Name</div>
+                                        <div class="small text-muted text-truncate">@village.Address</div>
+                                        <div class="small text-success">评分 @GetDisplayRating(village.AverageRating).ToString("0.0")</div>
+                                    </div>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .ranking-index {
+        width: 28px;
+        height: 28px;
+        border-radius: 999px;
+        background: #198754;
+        color: #fff;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+
+    .post-card {
+        min-height: 280px;
+        border: 1px solid rgba(0,0,0,.06);
+    }
+
+    .transition-hover {
+        transition: transform .2s ease, box-shadow .2s ease;
+    }
+
+    .transition-hover:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 .5rem 1.2rem rgba(0,0,0,.08) !important;
+    }
+
+    .post-excerpt {
+        color: #495057;
+        line-height: 1.65;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    .image-preview-container {
+        display: flex;
+        gap: .5rem;
+        margin-top: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .preview-img {
+        width: 96px;
+        height: 72px;
+        object-fit: cover;
+        border-radius: .5rem;
+        border: 1px solid rgba(0,0,0,.08);
+    }
+
+    .ranking-panel {
+        max-height: 520px;
+        overflow-y: auto;
+    }
+
+    .home-search-box {
+        width: min(100%, 520px);
+    }
+</style>
+
+@code {
+    // 首页数据：帖子摘要 + 资源卡片，最终混排到同一个列表
+    private List<PostSummaryDto>? posts;
+    private Dictionary<string, PostPreview>? previews;
+    private readonly List<HomeResourceCard> homeResources = [];
+    private readonly List<BeautifulVillageDto> popularVillages = [];
+    private readonly List<HomeMixedCard> mixedCards = [];
+    private const int MaxHomeCards = 6;
+    private bool isLoading = true;
+    private bool isSearching;
+    private bool isSearchMode;
+    private string? errorMessage;
+    private string? searchKeyword;
+    private HubConnection? hubConnection;
+
+    private IEnumerable<HomeMixedCard> DisplayCards => mixedCards.Take(MaxHomeCards);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!OperatingSystem.IsBrowser())
+        {
+            isLoading = false;
+            return;
+        }
+
+        await AuthService.InitializeAsync();
+
+        // 首次进入页面：先加载内容，再接入实时更新
+        await LoadPostsAsync();
+        await SetupSignalRAsync();
+    }
+
+    // 建立帖子列表页的 SignalR 连接并订阅变更事件
+    private async Task SetupSignalRAsync()
+    {
+        if (hubConnection != null) return;
+
+        var apiBaseUrl = Configuration["BackendApi:BaseUrl"];
+        var hubUrl = string.IsNullOrWhiteSpace(apiBaseUrl) 
+            ? Navigation.ToAbsoluteUri("/hubs/post").ToString() 
+            : $"{apiBaseUrl.TrimEnd('/')}/hubs/post";
+
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(hubUrl)
+            .WithAutomaticReconnect()
+            .Build();
+
+        // 帖子创建/修改/删除后，统一触发首页重载
+        hubConnection.On<string>("PostUpdated", async (id) =>
+        {
+            await LoadPostsAsync();
+            StateHasChanged();
+        });
+
+        hubConnection.On<string>("PostDeleted", async (id) =>
+        {
+            await LoadPostsAsync();
+            StateHasChanged();
+        });
+
+        hubConnection.On<string>("PostCreated", async (id) =>
+        {
+            await LoadPostsAsync();
+            StateHasChanged();
+        });
+
+        try
+        {
+            await hubConnection.StartAsync();
+            await hubConnection.SendAsync("JoinListGroup");
+        }
+        catch { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection is not null)
+        {
+            try
+            {
+                await hubConnection.SendAsync("LeaveListGroup");
+                await hubConnection.DisposeAsync();
+            }
+            catch { }
+        }
+    }
+
+    private async Task OnSearchKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SearchAsync();
+        }
+    }
+
+    private async Task SearchAsync()
+    {
+        var keyword = searchKeyword?.Trim();
+        if (string.IsNullOrWhiteSpace(keyword))
+        {
+            await ResetSearchAsync();
+            return;
+        }
+
+        isSearching = true;
+        errorMessage = null;
+        try
+        {
+            var postTask = PostService.SearchRecommendedPostsAsync(keyword, 12);
+            var resourceTask = ResourceService.SearchRecommendedResourcesAsync(keyword, 10);
+            await Task.WhenAll(postTask, resourceTask);
+
+            posts = postTask.Result;
+            previews = new Dictionary<string, PostPreview>();
+            await LoadPostPreviewsAsync();
+
+            homeResources.Clear();
+            homeResources.AddRange(resourceTask.Result.Select(x => new HomeResourceCard
+            {
+                ResourceId = x.Id,
+                Name = x.Name,
+                Description = TruncateText(x.Description, 120),
+                Rating = x.AverageRating,
+                CategoryText = GetResourceCategoryText(x.ResourceType),
+                DetailUrl = $"/resources/{x.ResourceType}/{x.Id}",
+                CoverUrl = ResolveResourceCoverUrl(x.CoverMediaId)
+            }));
+
+            isSearchMode = true;
+            BuildMixedCards(false);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isSearching = false;
+        }
+    }
+
+    private async Task ResetSearchAsync()
+    {
+        searchKeyword = string.Empty;
+        isSearchMode = false;
+        isLoading = true;
+        await LoadPostsAsync();
+    }
+
+
+    // 拉取首页所需帖子与资源数据，并构建最终混排卡片
+    private async Task LoadPostsAsync()
+
+    {
+        errorMessage = null;
+        isSearchMode = false;
+        try
+        {
+            // 1) 优先拉取推荐帖子，空结果时回退公开列表
+            posts = await PostService.GetRecommendedPostsAsync(12);
+            if (posts.Count == 0)
+            {
+                posts = await PostService.GetPublishedPostsAsync();
+            }
+            previews = new Dictionary<string, PostPreview>();
+
+            homeResources.Clear();
+            popularVillages.Clear();
+            var recommendedResources = await ResourceService.GetRecommendedResourcesAsync(10);
+            if (recommendedResources.Count > 0)
+            {
+                homeResources.AddRange(recommendedResources.Select(x => new HomeResourceCard
+                {
+                    ResourceId = x.Id,
+                    Name = x.Name,
+                    Description = TruncateText(x.Description, 120),
+                    Rating = x.AverageRating,
+                    CategoryText = GetResourceCategoryText(x.ResourceType),
+                    DetailUrl = $"/resources/{x.ResourceType}/{x.Id}",
+                    CoverUrl = ResolveResourceCoverUrl(x.CoverMediaId)
+                }));
+            }
+            else
+            {
+                var attractionTask = ResourceService.GetAttractionsAsync();
+                var accommodationTask = ResourceService.GetAccommodationsAsync();
+                var diningTask = ResourceService.GetDiningAsync();
+                var beautifulVillageTask = ResourceService.GetBeautifulVillagesAsync();
+
+                await Task.WhenAll(attractionTask, accommodationTask, diningTask, beautifulVillageTask);
+
+                homeResources.AddRange(attractionTask.Result.Take(2).Select(x => new HomeResourceCard
+                {
+                    ResourceId = x.Id,
+                    Name = x.Name,
+                    Description = TruncateText(x.Description, 120),
+                    Rating = x.AverageRating,
+                    CategoryText = "景点",
+                    DetailUrl = $"/resources/attractions/{x.Id}",
+                    CoverUrl = ResolveResourceCoverUrl(x.CoverMediaId)
+                }));
+                homeResources.AddRange(accommodationTask.Result.Take(2).Select(x => new HomeResourceCard
+                {
+                    ResourceId = x.Id,
+                    Name = x.Name,
+                    Description = TruncateText(x.Description, 120),
+                    Rating = x.AverageRating,
+                    CategoryText = "住宿",
+                    DetailUrl = $"/resources/accommodations/{x.Id}",
+                    CoverUrl = ResolveResourceCoverUrl(x.CoverMediaId)
+                }));
+                homeResources.AddRange(diningTask.Result.Take(2).Select(x => new HomeResourceCard
+                {
+                    ResourceId = x.Id,
+                    Name = x.Name,
+                    Description = TruncateText(x.Description, 120),
+                    Rating = x.AverageRating,
+                    CategoryText = "美食",
+                    DetailUrl = $"/resources/dining/{x.Id}",
+                    CoverUrl = ResolveResourceCoverUrl(x.CoverMediaId)
+                }));
+                homeResources.AddRange(beautifulVillageTask.Result.Take(2).Select(x => new HomeResourceCard
+                {
+                    ResourceId = x.Id,
+                    Name = x.Name,
+                    Description = TruncateText(x.Description, 120),
+                    Rating = x.AverageRating,
+                    CategoryText = "美丽乡村",
+                    DetailUrl = $"/resources/beautiful-villages/{x.Id}",
+                    CoverUrl = ResolveResourceCoverUrl(x.CoverMediaId)
+                }));
+            }
+
+            var villages = await ResourceService.GetPopularBeautifulVillagesAsync(5);
+            popularVillages.AddRange(villages.Select(v => new BeautifulVillageDto
+            {
+                Id = v.Id,
+                Name = v.Name,
+                Address = v.Address,
+                CoverMediaId = v.CoverMediaId,
+                AverageRating = v.AverageRating
+            }));
+
+            await LoadPostPreviewsAsync();
+
+            BuildMixedCards(true);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadPostPreviewsAsync()
+    {
+        if (posts == null || posts.Count == 0 || previews == null) return;
+
+        var tasks = posts.Select(async s =>
+        {
+            try
+            {
+                var detail = await PostService.GetPostAsync(s.Id);
+                previews[s.Id] = BuildPreview(detail);
+            }
+            catch
+            {
+                previews[s.Id] = new PostPreview { Text = string.Empty, Images = [] };
+            }
+        });
+
+        await Task.WhenAll(tasks);
+    }
+
+    // 根据帖子详情生成文本摘要和最多两张预览图
+    private PostPreview BuildPreview(PostDetailDto? detail)
+    {
+        var preview = new PostPreview();
+        if (detail == null) return preview;
+
+        // 将块内容拼接为纯文本摘要
+        var sb = new System.Text.StringBuilder();
+        foreach (var b in detail.Blocks.OrderBy(b => b.Order))
+        {
+            var text = StripHtml(b.Content ?? string.Empty).Trim();
+            if (!string.IsNullOrEmpty(text))
+            {
+                if (sb.Length > 0) sb.Append(' ');
+                sb.Append(text);
+            }
+        }
+
+        var full = sb.ToString();
+        if (full.Length <= 150)
+        {
+            preview.Text = full;
+            preview.HasMore = false;
+        }
+        else
+        {
+            preview.Text = full.Substring(0, 150);
+            preview.HasMore = true;
+        }
+
+        // 预览图最多取 2 张
+        var images = new List<string>();
+        var imgRegex = new System.Text.RegularExpressions.Regex("<img[^>]+src=\\\"(?<src>[^\\\"]+)\\\"", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        foreach (var b in detail.Blocks.OrderBy(b => b.Order))
+        {
+            if (images.Count >= 2) break;
+            if (b.Type == BlockType.Image && !string.IsNullOrWhiteSpace(b.Content))
+            {
+                images.Add(b.Content!);
+            }
+            else if (!string.IsNullOrWhiteSpace(b.Content))
+            {
+                var m = imgRegex.Match(b.Content);
+                if (m.Success)
+                {
+                    images.Add(m.Groups["src"].Value);
+                }
+            }
+        }
+
+        preview.Images = images;
+        return preview;
+    }
+
+    // 去除 HTML 标签并反解码文本
+    private static string StripHtml(string html)
+    {
+        if (string.IsNullOrEmpty(html)) return string.Empty;
+        var noTags = System.Text.RegularExpressions.Regex.Replace(html, "<.*?>", string.Empty);
+        return System.Net.WebUtility.HtmlDecode(noTags);
+    }
+
+    // 统一格式化帖子发布时间文案
+    private string GetPublicationDate(PostSummaryDto post)
+    {
+        var date = post.PublishedAt ?? post.CreatedAt;
+        return date.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+    }
+
+    // 将资源封面标识转换为可直接访问的图片地址
+    private string? ResolveResourceCoverUrl(string? coverMediaId)
+    {
+        if (string.IsNullOrWhiteSpace(coverMediaId)) return null;
+        var first = coverMediaId
+            .Split([',', ';', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(first)) return null;
+        if (first.StartsWith("http", StringComparison.OrdinalIgnoreCase)) return first;
+
+        var apiBase = Http.BaseAddress?.ToString().TrimEnd('/') ?? string.Empty;
+        if (first.StartsWith('/')) return $"{apiBase}{first}";
+        return $"{apiBase}/api/media/{first}";
+    }
+
+    // 对简介文本做长度裁剪，避免卡片内容过长
+    private static string TruncateText(string? text, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return "暂时没有简介";
+        var value = text.Trim();
+        return value.Length <= maxLength ? value : value[..maxLength] + "...";
+    }
+
+    private string GetVillageCoverUrl(string? coverMediaId)
+    {
+        var url = ResolveResourceCoverUrl(coverMediaId);
+        return string.IsNullOrWhiteSpace(url)
+            ? "https://dummyimage.com/120x120/dee2e6/6c757d.jpg&text=Village"
+            : url;
+    }
+
+    // 合并帖子与资源卡片后执行随机打散
+    private void BuildMixedCards(bool shouldShuffle)
+    {
+        // 将“帖子”和“资源”统一映射为首页卡片模型后随机混排
+        mixedCards.Clear();
+
+        if (posts != null)
+        {
+            foreach (var post in posts)
+            {
+                PostPreview? preview = null;
+                if (previews != null)
+                {
+                    previews.TryGetValue(post.Id, out preview);
+                }
+                mixedCards.Add(new HomeMixedCard
+                {
+                    Title = post.Title,
+                    Meta = $"发布于 {GetPublicationDate(post)}",
+                    Excerpt = string.IsNullOrWhiteSpace(preview?.Text) ? "正在加载预览..." : preview.Text,
+                    Images = preview?.Images?.Take(2).ToList() ?? [],
+                    Link = $"/posts/{post.Id}"
+                });
+            }
+        }
+
+        foreach (var res in homeResources)
+        {
+            var imgs = new List<string>();
+            if (!string.IsNullOrWhiteSpace(res.CoverUrl)) imgs.Add(res.CoverUrl);
+
+            mixedCards.Add(new HomeMixedCard
+            {
+                Title = res.Name,
+                Meta = $"{res.CategoryText} · 评分 {GetDisplayRating(res.Rating):0.0}",
+                Excerpt = res.Description,
+                Images = imgs,
+                Link = res.DetailUrl,
+                ResourceId = res.ResourceId
+            });
+        }
+
+        if (shouldShuffle)
+        {
+            Shuffle(mixedCards);
+        }
+    }
+
+    // Fisher-Yates 洗牌算法
+    private static void Shuffle<T>(IList<T> list)
+    {
+        var rng = Random.Shared;
+        for (var i = list.Count - 1; i > 0; i--)
+        {
+            var j = rng.Next(i + 1);
+            (list[i], list[j]) = (list[j], list[i]);
+        }
+    }
+
+    // 处理评分兜底，避免显示 0 分
+    private static double GetDisplayRating(double rating)
+    {
+        return rating <= 0 ? 5.0 : rating;
+    }
+
+    private static string GetResourceCategoryText(string resourceType) => resourceType switch
+    {
+        "attractions" => "景点",
+        "accommodations" => "住宿",
+        "dining" => "美食",
+        "folk" => "民俗活动",
+        "beautiful-villages" => "美丽乡村",
+        _ => "推荐"
+    };
+
+    private async Task TrackCardClickAsync(HomeMixedCard card)
+    {
+        if (string.IsNullOrWhiteSpace(card.ResourceId)) return;
+
+        try
+        {
+            await ResourceService.TrackResourceInteractionAsync(card.ResourceId, "Click", "home-card");
+        }
+        catch
+        {
+        }
+    }
+
+    private sealed class PostPreview
+    {
+        public string Text { get; set; } = string.Empty;
+        public bool HasMore { get; set; }
+        public List<string> Images { get; set; } = new();
+    }
+
+    private sealed class HomeResourceCard
+    {
+        public string? ResourceId { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public double Rating { get; set; }
+        public string CategoryText { get; set; } = string.Empty;
+        public string DetailUrl { get; set; } = string.Empty;
+        public string? CoverUrl { get; set; }
+    }
+
+    private sealed class HomeMixedCard
+    {
+        public string Title { get; set; } = string.Empty;
+        public string Meta { get; set; } = string.Empty;
+        public string Excerpt { get; set; } = string.Empty;
+        public List<string> Images { get; set; } = [];
+        public string Link { get; set; } = string.Empty;
+        public string? ResourceId { get; set; }
+    }
+}

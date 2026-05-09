@@ -1,0 +1,225 @@
+@page "/admin/users"
+@rendermode InteractiveWebAssembly
+@using RuralTourism.Web.Client.Models
+@using RuralTourism.Web.Client.Services
+@inject UserService UserService
+@inject AuthService AuthService
+@inject NavigationManager Navigation
+
+<PageTitle>用户管理</PageTitle>
+
+<div class="container mt-4 mb-5">
+    <div class="card shadow-sm">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <h4 class="mb-0 text-primary">用户封禁管理</h4>
+            <button class="btn btn-outline-secondary btn-sm" @onclick='() => Navigation.NavigateTo("/resources")'>返回列表</button>
+        </div>
+        <div class="card-body">
+            @if (isLoading)
+            {
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            }
+            else if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                <div class="alert alert-danger">@errorMessage</div>
+            }
+            else
+            {
+                <div class="alert alert-info">
+                    可为用户设置封禁截止时间，封禁期间用户将无法登录。
+                </div>
+
+                @if (users.Count == 0)
+                {
+                    <div class="text-muted">暂无用户数据。</div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table align-middle">
+                            <thead>
+                                <tr>
+                                    <th>头像</th>
+                                    <th>用户</th>
+                                    <th>角色</th>
+                                    <th>状态</th>
+                                    <th style="width: 220px;">封禁时长</th>
+                                    <th style="width: 220px;">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var user in users)
+                                {
+                                    <tr>
+                                        <td>
+                                            <img src="@(string.IsNullOrWhiteSpace(user.AvatarUrl) ? UserConstants.DefaultAvatarUrl : user.AvatarUrl)" class="rounded-circle border" style="width:44px;height:44px;object-fit:cover;" />
+                                        </td>
+                                        <td>
+                                            <div class="fw-semibold">@GetDisplayName(user)</div>
+                                            <div class="text-muted small">@user.UserName · @user.UserNo · @user.Email</div>
+                                        </td>
+                                        <td>@user.Role</td>
+                                        <td>
+                                            @if (user.IsBanned)
+                                            {
+                                                <span class="badge bg-danger">封禁中</span>
+                                                <div class="small text-muted mt-1">至 @user.BannedUntil?.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</div>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-success">正常</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            <select class="form-select form-select-sm" @bind="selectedDurations[user.Id]">
+                                                @foreach (var option in BanOptions)
+                                                {
+                                                    <option value="@option.Value">@option.Label</option>
+                                                }
+                                            </select>
+                                        </td>
+                                        <td>
+                                            <div class="d-flex gap-2 flex-wrap">
+                                                <button class="btn btn-sm btn-warning" @onclick="() => BanUserAsync(user)" disabled="@isSaving">封禁</button>
+                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => UnbanUserAsync(user)" disabled="@(isSaving || !user.IsBanned)">解封</button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private readonly List<AdminUserDto> users = [];
+    private readonly List<(string Label, string Value)> BanOptions =
+    [
+        ("永久封禁", "permanent"),
+        ("1 小时", "1h"),
+        ("24 小时", "24h"),
+        ("3 天", "3d"),
+        ("7 天", "7d"),
+        ("30 天", "30d")
+    ];
+
+    private readonly Dictionary<string, string> selectedDurations = new(StringComparer.OrdinalIgnoreCase);
+    private bool isLoading = true;
+    private bool isSaving;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!OperatingSystem.IsBrowser()) return;
+
+        await AuthService.InitializeAsync();
+        if (!AuthService.IsAuthenticated)
+        {
+            Navigation.NavigateTo("/login?returnUrl=/admin/users");
+            return;
+        }
+
+        if (!AuthService.IsInRole("Admin"))
+        {
+            Navigation.NavigateTo("/resources");
+            return;
+        }
+
+        await LoadUsersAsync();
+    }
+
+    private async Task LoadUsersAsync()
+    {
+        isLoading = true;
+        try
+        {
+            users.Clear();
+            users.AddRange(await UserService.GetAdminUsersAsync());
+            selectedDurations.Clear();
+            foreach (var user in users)
+            {
+                selectedDurations[user.Id] = "24h";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task BanUserAsync(AdminUserDto user)
+    {
+        errorMessage = null;
+        isSaving = true;
+        try
+        {
+            var selected = selectedDurations.GetValueOrDefault(user.Id, "24h");
+            var isPermanent = string.Equals(selected, "permanent", StringComparison.OrdinalIgnoreCase);
+            var bannedUntil = isPermanent ? DateTimeOffset.UtcNow.AddYears(100) : DateTimeOffset.UtcNow.Add(ParseDuration(selected));
+            var success = await UserService.BanUserAsync(user.Id, bannedUntil, isPermanent);
+            if (!success)
+            {
+                errorMessage = "封禁失败";
+                return;
+            }
+
+            await LoadUsersAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task UnbanUserAsync(AdminUserDto user)
+    {
+        errorMessage = null;
+        isSaving = true;
+        try
+        {
+            var success = await UserService.UnbanUserAsync(user.Id);
+            if (!success)
+            {
+                errorMessage = "解封失败";
+                return;
+            }
+
+            await LoadUsersAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private static TimeSpan ParseDuration(string value) => value switch
+    {
+        "1h" => TimeSpan.FromHours(1),
+        "24h" => TimeSpan.FromHours(24),
+        "3d" => TimeSpan.FromDays(3),
+        "7d" => TimeSpan.FromDays(7),
+        "30d" => TimeSpan.FromDays(30),
+        _ => TimeSpan.FromHours(24)
+    };
+
+    private static string GetDisplayName(AdminUserDto user)
+        => string.IsNullOrWhiteSpace(user.Nickname) ? user.UserName : user.Nickname;
+}

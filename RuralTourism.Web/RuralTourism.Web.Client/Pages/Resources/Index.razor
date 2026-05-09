@@ -1,0 +1,195 @@
+@page "/resources"
+@rendermode InteractiveWebAssembly
+@using RuralTourism.Web.Client.Models
+@using RuralTourism.Web.Client.Services
+@inject ResourceService ResourceService
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject AuthService AuthService
+
+<PageTitle>乡村游</PageTitle>
+
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0">乡村游</h2>
+        @if (AuthService.IsAuthenticated && AuthService.IsInRole("Admin"))
+        {
+            <a href="/admin/resources/create" class="btn btn-primary">
+                <i class="bi bi-plus-lg me-1"></i> 录入乡村资源
+            </a>
+        }
+    </div>
+
+   
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <label class="form-label fw-semibold">按地区选择</label>
+            <select class="form-select" @bind="selectedDistrict" @bind:after="OnDistrictChanged">
+                <option value="">全部地区</option>
+                @foreach (var district in Districts)
+                {
+                    <option value="@district">@district</option>
+                }
+            </select>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+        </div>
+    }
+    else
+    {
+        <div class="row g-4">
+            @foreach (var item in FilterByDistrict(beautifulVillages, x => x.Address).Select(x => new ResourceCardItem
+            {
+                Id = x.Id,
+                Type = "beautiful-villages",
+                TypeLabel = "美丽乡村",
+                TypeBadgeClass = "bg-success text-light",
+                Name = x.Name,
+                Description = x.Description,
+                CoverMediaId = x.CoverMediaId,
+                AverageRating = x.AverageRating,
+                MetaText = x.VillageType ?? x.FamousFor ?? string.Empty
+            }))
+            {
+                <div class="col-md-6 col-lg-4">
+                    <div class="card h-100 shadow-sm resource-card" @onclick="() => GoToDetail(item.Id, item.Type)">
+                        <img src="@GetImageUrl(item.CoverMediaId)" class="card-img-top" alt="@item.Name" style="height: 200px; object-fit: cover;">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                                <h5 class="card-title mb-0">@item.Name</h5>
+                                <span class="badge @item.TypeBadgeClass">@item.TypeLabel</span>
+                            </div>
+                            <p class="card-text text-truncate">@item.Description</p>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="text-muted small">@item.MetaText</span>
+                                <small class="text-muted"><i class="bi bi-star-fill text-warning"></i> @GetDisplayRating(item.AverageRating).ToString("0.0")</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<style>
+    .resource-card {
+        cursor: pointer;
+        transition: transform 0.2s;
+    }
+    .resource-card:hover {
+        transform: translateY(-5px);
+    }
+</style>
+
+@code {
+    private readonly string[] Districts =
+    [
+        "京口区", "润州区", "丹徒区", "句容市", "丹阳市", "扬中市"
+    ];
+
+    private string selectedDistrict = string.Empty;
+    private bool isLoading = true;
+
+    private List<AttractionDto> attractions = new();
+    private List<AccommodationDto> accommodations = new();
+    private List<DiningDto> dining = new();
+    private List<FolkActivityDto> folkActivities = new();
+    private List<BeautifulVillageDto> beautifulVillages = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (OperatingSystem.IsBrowser())
+        {
+            await AuthService.InitializeAsync();
+        }
+        await LoadData();
+    }
+
+    private void OnDistrictChanged()
+    {
+        StateHasChanged();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        try
+        {
+            if (beautifulVillages.Count == 0)
+                beautifulVillages = await ResourceService.GetBeautifulVillagesAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message);
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void GoToDetail(string id, string type)
+    {
+        Navigation.NavigateTo($"/resources/{type}/{id}");
+    }
+
+    private IEnumerable<T> FilterByDistrict<T>(IEnumerable<T> items, Func<T, string?> addressSelector)
+    {
+        if (string.IsNullOrWhiteSpace(selectedDistrict))
+        {
+            return items;
+        }
+
+        var aliases = GetDistrictAliases(selectedDistrict);
+        return items.Where(item =>
+        {
+            var addr = addressSelector(item) ?? string.Empty;
+            return aliases.Any(a => addr.Contains(a, StringComparison.OrdinalIgnoreCase));
+        });
+    }
+
+    private IEnumerable<string> GetDistrictAliases(string district)
+    {
+        // 将部分新区/高新区归并到主区，便于筛选
+        return district switch
+        {
+            "京口区" => new[] { "京口区", "镇江新区" },
+            "润州区" => new[] { "润州区", "镇江高新区", "高新区" },
+            _ => new[] { district }
+        };
+    }
+
+    private sealed class ResourceCardItem
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Type { get; set; } = string.Empty;
+        public string TypeLabel { get; set; } = string.Empty;
+        public string TypeBadgeClass { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public string? CoverMediaId { get; set; }
+        public double AverageRating { get; set; }
+        public string MetaText { get; set; } = string.Empty;
+    }
+
+    private string GetImageUrl(string? mediaId)
+    {
+        if (string.IsNullOrEmpty(mediaId)) return "https://dummyimage.com/600x400/dee2e6/6c757d.jpg";
+        if (mediaId.StartsWith("http")) return mediaId;
+        var apiBase = Http.BaseAddress?.ToString().TrimEnd('/') ?? string.Empty;
+        if (mediaId.StartsWith('/')) return $"{apiBase}{mediaId}";
+        return $"{apiBase}/api/media/{mediaId}";
+    }
+
+    private static double GetDisplayRating(double rating)
+    {
+        return rating <= 0 ? 5.0 : rating;
+    }
+}

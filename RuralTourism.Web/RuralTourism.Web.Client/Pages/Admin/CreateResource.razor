@@ -1,0 +1,582 @@
+@page "/admin/resources/create"
+@rendermode InteractiveWebAssembly
+@using RuralTourism.Web.Client.Models
+@using RuralTourism.Web.Client.Services
+@inject ResourceService ResourceService
+@inject PostService PostService
+@inject NavigationManager Navigation
+@inject AuthService AuthService
+@inject IJSRuntime JSRuntime
+
+<PageTitle>录入乡村资源</PageTitle>
+
+<div class="container mt-4 mb-5">
+    <div class="card shadow-sm">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <h4 class="mb-0 text-primary">手工录入镇江乡村资源</h4>
+            <button class="btn btn-outline-secondary btn-sm" @onclick='() => Navigation.NavigateTo("/resources")'>返回列表</button>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-info">
+                仅录入镇江乡村旅游相关资源，建议优先填写村落、田园、农事体验、乡村民宿、农家餐饮、民俗活动等内容。
+            </div>
+
+            @if (isLoading)
+            {
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            }
+            else
+            {
+                <div class="mb-4">
+                    <label class="form-label fw-bold">选择乡村资源类型</label>
+                    <select class="form-select w-auto" @bind="resourceType" @bind:after="OnTypeChanged">
+                        <option value="attraction">乡村景观/田园观光 (Attraction)</option>
+                        <option value="accommodation">乡村民宿/农庄住宿 (Accommodation)</option>
+                        <option value="dining">乡土餐饮/农家菜 (Dining)</option>
+                        <option value="folk">民俗活动/非遗体验 (Folk Activity)</option>
+                        <option value="beautiful-village">美丽乡村/特色村落 (Beautiful Village)</option>
+                    </select>
+                </div>
+
+                <hr />
+
+                <EditForm Model="currentModel" OnValidSubmit="HandleSubmit">
+                    <DataAnnotationsValidator />
+
+                    <div class="row g-3">
+                        <div class="col-md-12">
+                            <label class="form-label">名称 <span class="text-danger">*</span></label>
+                            <InputText class="form-control" @bind-Value="commonProps.Name" required />
+                        </div>
+                        
+                        <div class="col-md-12">
+                            <label class="form-label">封面图片</label>
+                            <div class="d-flex align-items-center gap-3 flex-wrap">
+                                <InputFile OnChange="HandleCoverUpload" class="form-control w-auto" accept="image/*" multiple />
+                                @if (isUploading)
+                                {
+                                    <span class="spinner-border spinner-border-sm text-primary" role="status"></span>
+                                }
+                            </div>
+
+                            @if (uploadedCovers.Count > 0)
+                            {
+                                <div class="d-flex flex-wrap gap-2 mt-2">
+                                    @for (var i = 0; i < uploadedCovers.Count; i++)
+                                    {
+                                        var index = i;
+                                        <div class="position-relative border rounded overflow-hidden" style="width: 72px; height: 72px;">
+                                            <img src="@uploadedCovers[index].Url" style="width: 100%; height: 100%; object-fit: cover;" />
+                                            <button type="button" class="btn btn-danger btn-sm position-absolute top-0 end-0 p-0" style="width:20px;height:20px;line-height:1" @onclick="() => RemoveCover(index)">×</button>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        <div class="col-md-12">
+                            <label class="form-label">简短描述</label>
+                            <InputTextArea class="form-control" rows="3" @bind-Value="commonProps.Description" />
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label">省市</label>
+                            <input class="form-control" value="江苏省 镇江市" disabled />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">区/县/市</label>
+                            <select class="form-select" @bind="selectedDistrict">
+                                <option value="京口区">京口区</option>
+                                <option value="润州区">润州区</option>
+                                <option value="丹徒区">丹徒区</option>
+                                <option value="镇江新区">镇江新区</option>
+                                <option value="镇江高新区">镇江高新区</option>
+                                <option value="句容市">句容市</option>
+                                <option value="丹阳市">丹阳市</option>
+                                <option value="扬中市">扬中市</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">详细地址 (街道、门牌号等)</label>
+                            <InputText class="form-control" @bind-Value="detailedAddress" placeholder="例如：某某街道123号" />
+                        </div>
+
+                        <div class="col-md-12">
+                            <button type="button" class="btn btn-outline-info btn-sm mb-2" @onclick="GeocodeAddress">
+                                @if (isGeocoding)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                                }
+                                <i class="bi bi-geo-alt"></i> 自动获取经纬度
+                            </button>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">经度 (Longitude)</label>
+                            <InputNumber class="form-control" @bind-Value="commonProps.Longitude" />
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label">纬度 (Latitude)</label>
+                            <InputNumber class="form-control" @bind-Value="commonProps.Latitude" />
+                        </div>
+
+                        <div class="col-md-12">
+                            <label class="form-label">乡村标签 (逗号分隔)</label>
+                            <InputText class="form-control" @bind-Value="commonProps.Tags" />
+                            <div class="form-text">建议使用：乡村、田园、采摘、农家、民宿、古村、非遗、研学、徒步、骑行等标签。</div>
+                        </div>
+
+                        @if (RequiresVillageSelection)
+                        {
+                            <div class="col-md-12">
+                                <label class="form-label fw-semibold">所属乡村 <span class="text-danger">*</span></label>
+                                <select class="form-select" @bind="selectedVillageId">
+                                    <option value="">-- 请选择乡村 --</option>
+                                    @foreach (var village in beautifulVillages)
+                                    {
+                                        <option value="@village.Id">@village.Name</option>
+                                    }
+                                </select>
+                                <div class="form-text">景区、民宿和餐饮必须归属到已有乡村。</div>
+                            </div>
+                        }
+                    </div>
+
+                    <h5 class="mt-4 mb-3 border-bottom pb-2">特定信息</h5>
+                    <div class="row g-3 mb-4">
+                        @if (resourceType == "attraction")
+                        {
+                            <div class="col-md-4">
+                                <label class="form-label">开放时间/可游览时段</label>
+                                <select class="form-select" @bind="attractionModel.OpeningHours">
+                                    <option value="">-- 请选择开放时间 --</option>
+                                    <option value="全天24小时放">全天24小时开放</option>
+                                    <option value="08:00 - 18:00">08:00 - 18:00</option>
+                                    <option value="09:00 - 17:00">09:00 - 17:00</option>
+                                    <option value="08:30 - 17:30">08:30 - 17:30</option>
+                                    <option value="08:00 - 17:30">08:00 - 17:30</option>
+                                    <option value="07:30 - 17:00">07:30 - 17:00</option>
+                                    <option value="08:00 - 21:00">08:00 - 21:00</option>
+                                    <option value="08:00 - 17:00">08:00 - 17:00</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">门票/体验费用</label>
+                                <InputText class="form-control" @bind-Value="attractionModel.TicketPrice" placeholder="例: 免费、30元、采摘另计" />
+                            </div>
+                        }
+                        else if (resourceType == "accommodation")
+                        {
+                            <div class="col-md-4">
+                                <label class="form-label">舒适度等级 (1-5)</label>
+                                <InputNumber class="form-control" @bind-Value="accommodationModel.StarRating" min="1" max="5" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">配套设施 (逗号分隔)</label>
+                                <InputText class="form-control" @bind-Value="accommodationModel.Amenities" placeholder="WIFI,停车,餐饮,烧烤,亲子" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">房型</label>
+                                <InputText class="form-control" @bind-Value="accommodationModel.RoomTypes" placeholder="大床房,亲子房,院落房" />
+                            </div>
+                        }
+                        else if (resourceType == "dining")
+                        {
+                            <div class="col-md-4">
+                                <label class="form-label">餐饮类型</label>
+                                <InputText class="form-control" @bind-Value="diningModel.CuisineType" placeholder="农家菜,乡土菜,江鲜,土菜" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">人均消费</label>
+                                <InputText class="form-control" @bind-Value="diningModel.PriceRange" placeholder="例: 30-80元" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">招牌菜</label>
+                                <InputText class="form-control" @bind-Value="diningModel.SignatureDishes" placeholder="农家土鸡,红烧肉,时令蔬菜" />
+                            </div>
+                        }
+                        else if (resourceType == "folk")
+                        {
+                            <div class="col-md-4">
+                                <label class="form-label">活动日期</label>
+                                <InputDate class="form-control" @bind-Value="folkModel.EventDate" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">持续时间</label>
+                                <InputText class="form-control" @bind-Value="folkModel.Duration" placeholder="例: 半天, 1天, 3天" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">举办方</label>
+                                <InputText class="form-control" @bind-Value="folkModel.Organizer" />
+                            </div>
+                        }
+                        else if (resourceType == "beautiful-village")
+                        {
+                            <div class="col-md-4">
+                                <label class="form-label">村镇类型</label>
+                                <InputText class="form-control" @bind-Value="beautifulVillageModel.VillageType" placeholder="例: 历史古村, 生态村, 田园村" />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">村庄特色</label>
+                                <InputText class="form-control" @bind-Value="beautifulVillageModel.FamousFor" placeholder="例: 古建筑, 特色美食, 采摘体验, 乡土文化" />
+                            </div>
+                        }
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(errorMessage))
+                    {
+                        <div class="alert alert-danger">@errorMessage</div>
+                    }
+                    @if (!string.IsNullOrEmpty(successMessage))
+                    {
+                        <div class="alert alert-success">@successMessage</div>
+                    }
+
+                    <div class="d-grid mt-4">
+                        <button type="submit" class="btn btn-primary btn-lg" disabled="@isSubmitting">
+                            @if (isSubmitting)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
+                            }
+                            提交乡村资源
+                        </button>
+                    </div>
+                </EditForm>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private static readonly string[] RuralKeywords =
+    [
+        "乡村", "村", "田园", "农", "农家", "采摘", "果园", "茶园", "稻田", "民宿", "古村", "非遗", "民俗", "研学"
+    ];
+
+    private bool isLoading = true;
+    private bool isSubmitting = false;
+    private bool isUploading = false;
+    private bool isGeocoding = false;
+    private string? errorMessage;
+    private string? successMessage;
+
+    private string resourceType = "beautiful-village";
+    private string selectedDistrict = "京口区";
+    private string detailedAddress = "";
+
+    // Used to bind common fields easily
+    private class CommonResourceProps
+    {
+        public string Name { get; set; } = "";
+        public string? Description { get; set; }
+        public string? Address { get; set; }
+        public double Latitude { get; set; }
+        public double Longitude { get; set; }
+        public string? Tags { get; set; }
+        public string? CoverMediaId { get; set; }
+    }
+
+    private sealed class UploadedCover
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Url { get; set; } = string.Empty;
+    }
+
+    private CommonResourceProps commonProps = new();
+    private readonly List<UploadedCover> uploadedCovers = [];
+    private readonly List<BeautifulVillageDto> beautifulVillages = [];
+    private string selectedVillageId = string.Empty;
+    
+    private AttractionCreateDto attractionModel = new() { Name = "" };
+    private AccommodationCreateDto accommodationModel = new() { Name = "", StarRating = 3 };
+    private DiningCreateDto diningModel = new() { Name = "" };
+    private FolkActivityCreateDto folkModel = new() { Name = "", EventDate = DateTime.Now };
+    private BeautifulVillageCreateDto beautifulVillageModel = new() { Name = "" };
+
+    private object currentModel => resourceType switch
+    {
+        "accommodation" => accommodationModel,
+        "dining" => diningModel,
+        "folk" => folkModel,
+        "beautiful-village" => beautifulVillageModel,
+        _ => attractionModel
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!OperatingSystem.IsBrowser()) return;
+
+        await AuthService.InitializeAsync();
+        if (!AuthService.IsAuthenticated)
+        {
+            Navigation.NavigateTo("/login?returnUrl=/admin/resources/create");
+            return;
+        }
+
+        if (!AuthService.IsInRole("Admin"))
+        {
+            Navigation.NavigateTo("/resources");
+            return;
+        }
+
+        beautifulVillages.AddRange(await ResourceService.GetBeautifulVillagesAsync(1, 200));
+
+        isLoading = false;
+    }
+
+    private void OnTypeChanged()
+    {
+        errorMessage = null;
+        successMessage = null;
+        if (!RequiresVillageSelection)
+        {
+            selectedVillageId = string.Empty;
+        }
+    }
+
+    private async Task HandleCoverUpload(InputFileChangeEventArgs e)
+    {
+        var files = e.GetMultipleFiles();
+        if (files.Count == 0) return;
+
+        isUploading = true;
+        errorMessage = null;
+
+        try
+        {
+            foreach (var file in files)
+            {
+                var result = await PostService.UploadMediaWithIdAsync(file);
+                uploadedCovers.Add(new UploadedCover
+                {
+                    Id = result.Id,
+                    Url = result.Url
+                });
+            }
+
+            SyncCoverMediaIds();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"图片上传失败: {ex.Message}";
+        }
+        finally
+        {
+            isUploading = false;
+        }
+    }
+
+    private void RemoveCover(int index)
+    {
+        if (index < 0 || index >= uploadedCovers.Count) return;
+        uploadedCovers.RemoveAt(index);
+        SyncCoverMediaIds();
+    }
+
+    private void SyncCoverMediaIds()
+    {
+        commonProps.CoverMediaId = uploadedCovers.Count == 0
+            ? null
+            : uploadedCovers[0].Id;
+    }
+
+    private class GeoResult
+    {
+        public double Lng { get; set; }
+        public double Lat { get; set; }
+    }
+
+    private async Task GeocodeAddress()
+    {
+        if (string.IsNullOrWhiteSpace(detailedAddress))
+        {
+            errorMessage = "请先填写详细地址";
+            return;
+        }
+
+        isGeocoding = true;
+        errorMessage = null;
+        try
+        {
+            var fullAddress = $"江苏省镇江市{selectedDistrict}{detailedAddress}";
+            var result = await JSRuntime.InvokeAsync<GeoResult?>("getBaiduLocation", fullAddress, "镇江市");
+            if (result != null)
+            {
+                commonProps.Longitude = result.Lng;
+                commonProps.Latitude = result.Lat;
+                successMessage = "经纬度解析成功！";
+            }
+            else
+            {
+                errorMessage = "无法解析该地址，请检查详细地址是否准确或手动输入经纬度。";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"地址解析失败: {ex.Message}";
+        }
+        finally
+        {
+            isGeocoding = false;
+        }
+    }
+
+    private void SwapCommonProps()
+    {
+        // 绑定公共属性到当前激活的模型
+        if (resourceType == "attraction")
+        {
+            attractionModel.Name = commonProps.Name;
+            attractionModel.Description = commonProps.Description;
+            attractionModel.Address = commonProps.Address;
+            attractionModel.Latitude = commonProps.Latitude;
+            attractionModel.Longitude = commonProps.Longitude;
+            attractionModel.Tags = commonProps.Tags;
+            attractionModel.CoverMediaId = commonProps.CoverMediaId;
+        }
+        else if (resourceType == "accommodation")
+        {
+            accommodationModel.Name = commonProps.Name;
+            accommodationModel.Description = commonProps.Description;
+            accommodationModel.Address = commonProps.Address;
+            accommodationModel.Latitude = commonProps.Latitude;
+            accommodationModel.Longitude = commonProps.Longitude;
+            accommodationModel.Tags = commonProps.Tags;
+            accommodationModel.CoverMediaId = commonProps.CoverMediaId;
+        }
+        else if (resourceType == "dining")
+        {
+            diningModel.Name = commonProps.Name;
+            diningModel.Description = commonProps.Description;
+            diningModel.Address = commonProps.Address;
+            diningModel.Latitude = commonProps.Latitude;
+            diningModel.Longitude = commonProps.Longitude;
+            diningModel.Tags = commonProps.Tags;
+            diningModel.CoverMediaId = commonProps.CoverMediaId;
+        }
+        else if (resourceType == "folk")
+        {
+            folkModel.Name = commonProps.Name;
+            folkModel.Description = commonProps.Description;
+            folkModel.Address = commonProps.Address;
+            folkModel.Latitude = commonProps.Latitude;
+            folkModel.Longitude = commonProps.Longitude;
+            folkModel.Tags = commonProps.Tags;
+            folkModel.CoverMediaId = commonProps.CoverMediaId;
+        }
+        else if (resourceType == "beautiful-village")
+        {
+            beautifulVillageModel.Name = commonProps.Name;
+            beautifulVillageModel.Description = commonProps.Description;
+            beautifulVillageModel.Address = commonProps.Address;
+            beautifulVillageModel.Latitude = commonProps.Latitude;
+            beautifulVillageModel.Longitude = commonProps.Longitude;
+            beautifulVillageModel.Tags = commonProps.Tags;
+            beautifulVillageModel.CoverMediaId = commonProps.CoverMediaId;
+        }
+    }
+
+    private async Task HandleSubmit()
+    {
+        if (string.IsNullOrWhiteSpace(commonProps.Name))
+        {
+            errorMessage = "名称不能为空";
+            return;
+        }
+
+        if (RequiresVillageSelection && string.IsNullOrWhiteSpace(selectedVillageId))
+        {
+            errorMessage = "请先选择所属乡村。";
+            return;
+        }
+
+        commonProps.Address = $"江苏省镇江市{selectedDistrict}{detailedAddress}";
+
+        if (RequiresVillageSelection)
+        {
+            commonProps.Tags = MergeVillageTag(commonProps.Tags, selectedVillageId);
+        }
+
+        if (commonProps.Longitude == 0 || commonProps.Latitude == 0)
+        {
+            await GeocodeAddress();
+            commonProps.Address = $"江苏省镇江市{selectedDistrict}{detailedAddress}";
+        }
+
+        isSubmitting = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            SwapCommonProps();
+
+            if (resourceType == "attraction")
+            {
+                await ResourceService.CreateAttractionAsync(attractionModel);
+            }
+            else if (resourceType == "accommodation")
+            {
+                await ResourceService.CreateAccommodationAsync(accommodationModel);
+            }
+            else if (resourceType == "dining")
+            {
+                await ResourceService.CreateDiningAsync(diningModel);
+            }
+            else if (resourceType == "folk")
+            {
+                await ResourceService.CreateFolkActivityAsync(folkModel);
+            }
+            else if (resourceType == "beautiful-village")
+            {
+                await ResourceService.CreateBeautifulVillageAsync(beautifulVillageModel);
+            }
+
+            successMessage = "资源添加成功！可以继续录入或返回列表。";
+            
+            // 重置表单以便继续录入
+            commonProps = new CommonResourceProps();
+            uploadedCovers.Clear();
+            detailedAddress = "";
+            selectedDistrict = "京口区";
+            selectedVillageId = string.Empty;
+            attractionModel = new() { Name = "" };
+            accommodationModel = new() { Name = "", StarRating = 3 };
+            diningModel = new() { Name = "" };
+            folkModel = new() { Name = "", EventDate = DateTime.Now };
+            beautifulVillageModel = new() { Name = "" };
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"录入失败: {ex.Message}";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private bool RequiresVillageSelection => resourceType is "attraction" or "accommodation" or "dining";
+
+    private static string MergeVillageTag(string? tags, string villageId)
+    {
+        if (string.IsNullOrWhiteSpace(villageId)) return tags ?? string.Empty;
+
+        var villageTag = $"village:{villageId}";
+        if (string.IsNullOrWhiteSpace(tags)) return villageTag;
+
+        var items = tags
+            .Split([',', '，', ';', '；', '|', '/', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+
+        if (!items.Any(x => string.Equals(x, villageTag, StringComparison.OrdinalIgnoreCase)))
+        {
+            items.Add(villageTag);
+        }
+
+        return string.Join(",", items.Distinct(StringComparer.OrdinalIgnoreCase));
+    }
+}

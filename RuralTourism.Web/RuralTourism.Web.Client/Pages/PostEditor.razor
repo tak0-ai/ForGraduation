@@ -1,0 +1,358 @@
+@page "/posts/edit"
+@page "/posts/edit/{Id}"
+@rendermode InteractiveWebAssembly
+@using System.Linq
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Web
+@using RuralTourism.Web.Client.Models
+@using RuralTourism.Web.Client.Services
+@inject PostService PostService
+@inject NavigationManager Navigation
+@inject AuthService AuthService
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>@(string.IsNullOrWhiteSpace(Id) ? "发布游记" : "编辑游记")</PageTitle>
+
+<div class="container mt-4 mb-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-10">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-white py-3 d-flex align-items-center justify-content-between border-bottom-0">
+                    <h1 class="h4 mb-0 text-primary">
+                        @(string.IsNullOrWhiteSpace(Id) ? "发布新游记" : "编辑游记")
+                    </h1>
+                    <button class="btn btn-link text-muted text-decoration-none" @onclick="CancelAsync">
+                        取消
+                    </button>
+                </div>
+                <div class="card-body">
+                    @if (isLoading)
+                    {
+                        <div class="text-center my-5">
+                            <div class="spinner-border text-primary" role="status"></div>
+                            <p class="mt-2 text-muted">正在载入编辑器...</p>
+                        </div>
+                    }
+                    else
+                    {
+                        @if (!string.IsNullOrWhiteSpace(reviewComment) && currentStatus == PostStatus.Draft)
+                        {
+                            <div class="alert alert-warning">
+                                <div class="fw-semibold mb-1">审核未通过，请按以下意见修改后重新提交：</div>
+                                <div>@reviewComment</div>
+                            </div>
+                        }
+
+                        <div class="mb-4">
+                            <input type="text" class="form-control form-control-lg border-0 border-bottom rounded-0 px-0 fs-3 fw-bold" 
+                                   placeholder="请输入标题..." @bind="title" style="box-shadow: none;" />
+                        </div>
+
+                        <div class="mb-0 editor-toolbar d-flex gap-1 bg-light p-2 rounded-top border border-bottom-0" role="group">
+                            <div class="btn-group">
+                                <button class="btn btn-sm btn-outline-secondary" type="button" @onclick='() => ApplyFormat("bold")' title="加粗"><strong>B</strong></button>
+                                <button class="btn btn-sm btn-outline-secondary" type="button" @onclick='() => ApplyFormat("italic")' title="斜体"><em>I</em></button>
+                                <button class="btn btn-sm btn-outline-secondary" type="button" @onclick='() => ApplyFormat("underline")' title="下划线"><u>U</u></button>
+                                <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="InsertLink" title="插入链接"><i class="bi bi-link-45deg"></i></button>
+                            </div>
+                            <span class="border-end mx-2"></span>
+                            <label class="btn btn-sm btn-outline-secondary mb-0">
+                                插入图片
+                                <InputFile OnChange="InsertImageFromEditor" accept="image/*" style="display:none" />
+                            </label>
+                        </div>
+
+                        <div id="@editorId" class="border rounded-bottom p-3 mb-4" contenteditable="true" 
+                             style="min-height: 400px; background-color: #fff; outline: none; line-height: 1.6;"></div>
+
+                        <div class="d-flex justify-content-end gap-2 pt-3 border-top">
+                            @if (currentStatus == PostStatus.Draft)
+                            {
+                                <button class="btn btn-outline-secondary px-4" @onclick="() => SaveWithStatusAsync(true)" disabled="@isSaving">
+                                    存为草稿
+                                </button>
+                            }
+                            <button class="btn btn-primary px-5" @onclick="() => SaveWithStatusAsync(false)" disabled="@isSaving">
+                                @if (isSaving && !isDraft)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
+                                    <span>保存中...</span>
+                                }
+                                else
+                                {
+                                    <span>@GetSubmitButtonText()</span>
+                                }
+                            </button>
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(saveError))
+                        {
+                            <div class="alert alert-danger mt-3">@saveError</div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public string? Id { get; set; }
+
+    private bool NullableId => !string.IsNullOrWhiteSpace(Id);
+    private string title = string.Empty;
+    private bool isDraft = false;
+    private PostStatus currentStatus = PostStatus.Draft;
+    private string? coverPreviewUrl;
+    private string? coverFileName;
+    private IBrowserFile? coverImage;
+    private string editorId = $"editor-{Guid.NewGuid():N}";
+    private bool isLoading = true;
+    private bool isSaving;
+    private string? saveError;
+    private string? reviewComment;
+    private string initialHtml = string.Empty;
+    private IJSObjectReference? editorModule;
+
+    private async Task CancelAsync()
+    {
+        if (NullableId)
+        {
+            // 对于已发布的文章和存为草稿的文章，直接尝试关闭页面
+            await JS.InvokeVoidAsync("window.close");
+            return;
+        }
+
+        // 获取编辑器 HTML 内容以判断是否为空
+        string html = string.Empty;
+        if (editorModule != null)
+        {
+            try
+            {
+                html = await editorModule.InvokeAsync<string>("getHtml", editorId);
+            }
+            catch { /* 忽略获取失败的情况 */ }
+        }
+
+        // 判断是否有内容输入（排除基础的空段落标签）
+        bool hasContent = !string.IsNullOrWhiteSpace(title) || (!string.IsNullOrWhiteSpace(html) && html != "<p><br></p>");
+
+        if (hasContent)
+        {
+            var shouldSave = await JS.InvokeAsync<bool>("confirm", "当前内容尚未保存，是否保存为草稿？");
+            if (shouldSave)
+            {
+                await SaveWithStatusAsync(true);
+                return;
+            }
+        }
+
+        await JS.InvokeVoidAsync("window.close");
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!OperatingSystem.IsBrowser())
+        {
+            isLoading = true;
+            return;
+        }
+
+        try
+        {
+            await AuthService.InitializeAsync();
+        }
+        catch (Exception ex)
+        {
+            saveError = $"初始化失败: {ex.Message}";
+        }
+
+        if (NullableId)
+        {
+            await LoadExistingPostAsync();
+        }
+        else
+        {
+            isLoading = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Try to load the editor interop module. When hosted inside the integrated server
+            // the client wwwroot may be served at the app base or under _content. Try both.
+            var baseUri = Navigation.BaseUri?.TrimEnd('/') ?? string.Empty;
+            try
+            {
+                editorModule = await JS.InvokeAsync<IJSObjectReference>("import", $"{baseUri}/_content/RuralTourism.Web.Client/js/editorInterop.js");
+            }
+            catch (JSException)
+            {
+                editorModule = await JS.InvokeAsync<IJSObjectReference>("import", $"{baseUri}/js/editorInterop.js");
+            }
+
+            await editorModule.InvokeVoidAsync("initEditor", editorId);
+            await SetEditorContentAsync(initialHtml);
+        }
+    }
+
+    private async Task LoadExistingPostAsync()
+    {
+        try
+        {
+            var existing = await PostService.GetPostAsync(Id!);
+            if (existing != null)
+            {
+                title = existing.Title ?? string.Empty;
+                coverPreviewUrl = existing.CoverMediaId;
+                currentStatus = existing.Status;
+                isDraft = currentStatus == PostStatus.Draft;
+                reviewComment = existing.ReviewComment;
+                initialHtml = existing.Blocks.OrderBy(b => b.Order).FirstOrDefault()?.Content ?? string.Empty;
+            }
+        }
+        catch (Exception ex)
+        {
+            saveError = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SetEditorContentAsync(string html)
+    {
+        if (editorModule != null)
+        {
+            await editorModule.InvokeVoidAsync("setHtml", editorId, html);
+        }
+
+        initialHtml = html;
+    }
+
+    private async Task ApplyFormat(string command, string? value = null)
+    {
+        if (editorModule != null)
+        {
+            await editorModule.InvokeVoidAsync("execCommand", editorId, command, value);
+        }
+    }
+
+    private async Task InsertLink()
+    {
+        var url = await JS.InvokeAsync<string>("prompt", "请输入链接地址:", "https://");
+        if (string.IsNullOrWhiteSpace(url)) return;
+
+        var text = await JS.InvokeAsync<string>("prompt", "请输入显示文本 (可选，留空则使用选中内容):", "");
+
+        if (!string.IsNullOrWhiteSpace(text) && editorModule != null)
+        {
+             await editorModule.InvokeVoidAsync("insertHtml", editorId, $"<a href=\"{url}\" target=\"_blank\">{text}</a>");
+        }
+        else if (editorModule != null)
+        {
+            await editorModule.InvokeVoidAsync("createLink", editorId, url);
+        }
+    }
+
+    private async Task InsertImageFromEditor(InputFileChangeEventArgs args)
+    {
+        var file = args.File;
+        if (file == null || editorModule == null) return;
+        try
+        {
+            var imageUrl = await PostService.UploadMediaAsync(file);
+            await editorModule.InvokeVoidAsync("insertHtml", editorId, $"<p><img src=\"{imageUrl}\" style=\"max-width:100%;\" /></p>");
+        }
+        catch (Exception ex)
+        {
+            saveError = ex.Message;
+        }
+    }
+
+    private async Task OnCoverImageSelected(InputFileChangeEventArgs args)
+    {
+        coverImage = args.File;
+        coverFileName = coverImage?.Name;
+    }
+
+    private async Task SaveWithStatusAsync(bool asDraft)
+    {
+        isDraft = asDraft;
+        await SavePostAsync();
+    }
+
+    private async Task SavePostAsync()
+    {
+        saveError = null;
+        isSaving = true;
+        try
+        {
+            if (editorModule == null)
+            {
+                throw new InvalidOperationException("编辑器尚未初始化。");
+            }
+
+            // find any blob images in editor, upload them first and replace src
+            var blobImages = await editorModule.InvokeAsync<JsonElement[]>("getBlobImages", editorId);
+            var html = await editorModule.InvokeAsync<string>("getHtml", editorId);
+            if (blobImages != null && blobImages.Length > 0)
+            {
+                foreach (var img in blobImages)
+                {
+                    if (img.TryGetProperty("dataUrl", out var dataUrlEl) && dataUrlEl.ValueKind == JsonValueKind.String && img.TryGetProperty("src", out var srcEl) && srcEl.ValueKind == JsonValueKind.String)
+                    {
+                        var dataUrl = dataUrlEl.GetString();
+                        var oldSrc = srcEl.GetString();
+                        if (!string.IsNullOrEmpty(dataUrl) && !string.IsNullOrEmpty(oldSrc))
+                        {
+                            var uploadedUrl = await PostService.UploadMediaFromDataUrlAsync(dataUrl);
+                            html = html.Replace(oldSrc, uploadedUrl);
+                        }
+                    }
+                }
+            }
+            var block = new PostBlockCreateDto(null, 0, BlockType.Text, html, null);
+            var dto = new PostCreateDto(title, isDraft, coverPreviewUrl, new List<PostBlockCreateDto> { block });
+
+            if (NullableId)
+            {
+                await PostService.UpdatePostAsync(Id!, dto, coverImage);
+                Navigation.NavigateTo($"/posts/{Id}");
+            }
+            else
+            {
+                var created = await PostService.CreatePostAsync(dto, coverImage);
+                Navigation.NavigateTo($"/posts/{created.Id}");
+            }
+        }
+        catch (Exception ex)
+        {
+            saveError = ex.Message;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private string GetSubmitButtonText()
+    {
+        if (currentStatus != PostStatus.Draft) return "保存修改";
+        return AuthService.IsInRole("Admin") ? "立即发布" : "提交审核";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (editorModule != null)
+        {
+            await editorModule.DisposeAsync();
+        }
+    }
+}

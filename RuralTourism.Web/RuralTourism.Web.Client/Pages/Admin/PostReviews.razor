@@ -1,0 +1,207 @@
+@page "/admin/posts/review"
+@rendermode InteractiveWebAssembly
+@using RuralTourism.Web.Client.Models
+@using RuralTourism.Web.Client.Services
+@inject PostService PostService
+@inject AuthService AuthService
+@inject NavigationManager Navigation
+
+<PageTitle>帖子审核</PageTitle>
+
+<div class="container mt-4 mb-5">
+    <div class="card shadow-sm">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <h4 class="mb-0 text-primary">待审核帖子</h4>
+            <button class="btn btn-outline-secondary btn-sm" @onclick="LoadAsync" disabled="@isLoading">刷新</button>
+        </div>
+        <div class="card-body">
+            @if (isLoading)
+            {
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            }
+            else if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                <div class="alert alert-danger">@errorMessage</div>
+            }
+            else if (posts.Count == 0)
+            {
+                <div class="alert alert-info mb-0">暂无待审核帖子。</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table align-middle">
+                        <thead>
+                            <tr>
+                                <th>标题</th>
+                                <th style="width: 220px;">提交时间</th>
+                                <th style="width: 260px;">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var post in posts)
+                            {
+                                var rowSaving = savingPostIds.Contains(post.Id);
+                                var isRejecting = rejectingPostId == post.Id;
+                                <tr>
+                                    <td>
+                                        <a href="@($"/posts/{post.Id}")" target="_blank" class="text-decoration-none fw-semibold">
+                                            @(string.IsNullOrWhiteSpace(post.Title) ? "（无标题）" : post.Title)
+                                        </a>
+                                        <div class="small text-muted mt-1">状态：@GetStatusText(post.Status)</div>
+                                    </td>
+                                    <td>@GetSubmitDate(post)</td>
+                                    <td>
+                                        <div class="d-flex flex-wrap gap-2">
+                                            <a class="btn btn-sm btn-outline-secondary" href="@($"/posts/{post.Id}")" target="_blank">查看</a>
+                                            <button class="btn btn-sm btn-success" @onclick="() => ApproveAsync(post)" disabled="@rowSaving">通过</button>
+                                            <button class="btn btn-sm btn-outline-danger" @onclick="() => StartReject(post)" disabled="@rowSaving">驳回</button>
+                                        </div>
+                                    </td>
+                                </tr>
+
+                                @if (isRejecting)
+                                {
+                                    <tr>
+                                        <td colspan="3" class="bg-light">
+                                            <div class="mb-2 fw-semibold text-danger">请输入驳回原因（将展示给用户用于修改）</div>
+                                            <textarea class="form-control" rows="3" @bind="rejectReason" placeholder="例如：标题过于笼统，图片说明不足，请补充路线与游玩时间建议。"></textarea>
+                                            <div class="d-flex gap-2 mt-3">
+                                                <button class="btn btn-danger btn-sm" @onclick="() => ConfirmRejectAsync(post)" disabled="@rowSaving">确认驳回</button>
+                                                <button class="btn btn-outline-secondary btn-sm" @onclick="CancelReject" disabled="@rowSaving">取消</button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private readonly List<PostSummaryDto> posts = [];
+    private readonly HashSet<string> savingPostIds = new(StringComparer.OrdinalIgnoreCase);
+    private bool isLoading = true;
+    private string? errorMessage;
+    private string? rejectingPostId;
+    private string rejectReason = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!OperatingSystem.IsBrowser()) return;
+
+        await AuthService.InitializeAsync();
+        if (!AuthService.IsAuthenticated)
+        {
+            Navigation.NavigateTo("/login?returnUrl=/admin/posts/review");
+            return;
+        }
+
+        if (!AuthService.IsInRole("Admin"))
+        {
+            Navigation.NavigateTo("/resources");
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+        try
+        {
+            posts.Clear();
+            var data = await PostService.GetPendingReviewPostsAsync(pageSize: 100);
+            posts.AddRange(data
+                .Where(p => p.Status == PostStatus.PendingReview)
+                .OrderByDescending(p => p.CreatedAt));
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ApproveAsync(PostSummaryDto post)
+    {
+        await ReviewAsync(post, approve: true, reason: null);
+    }
+
+    private void StartReject(PostSummaryDto post)
+    {
+        rejectingPostId = post.Id;
+        rejectReason = string.Empty;
+    }
+
+    private void CancelReject()
+    {
+        rejectingPostId = null;
+        rejectReason = string.Empty;
+    }
+
+    private async Task ConfirmRejectAsync(PostSummaryDto post)
+    {
+        var reason = rejectReason.Trim();
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            errorMessage = "请填写驳回原因，便于用户修改。";
+            return;
+        }
+
+        var ok = await ReviewAsync(post, approve: false, reason: reason);
+        if (ok)
+        {
+            CancelReject();
+        }
+    }
+
+    private async Task<bool> ReviewAsync(PostSummaryDto post, bool approve, string? reason)
+    {
+        errorMessage = null;
+        if (!savingPostIds.Add(post.Id)) return false;
+
+        try
+        {
+            await PostService.ReviewPostAsync(post.Id, approve, reason);
+            posts.RemoveAll(x => x.Id == post.Id);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+            return false;
+        }
+        finally
+        {
+            savingPostIds.Remove(post.Id);
+        }
+    }
+
+    private static string GetSubmitDate(PostSummaryDto post)
+    {
+        var date = post.PublishedAt ?? post.CreatedAt;
+        return date.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+    }
+
+    private static string GetStatusText(PostStatus status) => status switch
+    {
+        PostStatus.PendingReview => "待审核",
+        PostStatus.Published => "已发布",
+        PostStatus.Draft => "草稿",
+        PostStatus.Private => "仅自己可见",
+        PostStatus.Archived => "已归档",
+        _ => status.ToString()
+    };
+}

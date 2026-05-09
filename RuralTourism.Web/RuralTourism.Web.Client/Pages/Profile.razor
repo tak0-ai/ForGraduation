@@ -1,0 +1,237 @@
+@page "/profile"
+@using RuralTourism.Web.Client.Models
+@using RuralTourism.Web.Client.Services
+@using Microsoft.AspNetCore.Components.Forms
+@inject UserService UserService
+@inject PostService PostService
+@inject AuthService AuthService
+@inject NavigationManager Navigation
+@rendermode InteractiveWebAssembly
+
+<PageTitle>个人资料</PageTitle>
+
+<div class="container mt-4 mb-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-white py-3">
+                    <h3 class="card-title h5 mb-0 text-primary">个人资料设置</h3>
+                </div>
+                <div class="card-body p-4">
+                    @if (isLoading)
+                    {
+                        <div class="text-center my-4">
+                            <div class="spinner-border text-primary" role="status"></div>
+                            <p class="mt-2 text-muted">正在加载资料...</p>
+                        </div>
+                    }
+                    else if (user == null)
+                    {
+                        <div class="alert alert-danger">
+                            无法加载资料，请重新登录。
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="mb-4 text-center">
+                            <div class="position-relative d-inline-block">
+                                <img src="@(string.IsNullOrEmpty(updateModel.AvatarUrl) ? UserConstants.DefaultAvatarUrl : updateModel.AvatarUrl)" 
+                                     class="rounded-circle shadow-sm border" 
+                                     style="width: 100px; height: 100px; object-fit: cover;" />
+                                <label class="btn btn-sm btn-dark position-absolute bottom-0 end-0 rounded-circle shadow-sm" style="width: 32px; height: 32px; padding: 0; line-height: 32px; cursor: pointer;">
+                                    <i class="bi bi-camera"></i>
+                                    <InputFile OnChange="HandleAvatarUpload" class="d-none" accept="image/*" />
+                                </label>
+                            </div>
+                            <div class="mt-2">
+                                <small class="text-muted">点击相机图标更换头像</small>
+                            </div>
+                        </div>
+
+                        <!-- 个人中心快捷入口 -->
+                        <div class="d-flex justify-content-center gap-3 mb-4">
+                            <a href="/favorites" class="btn btn-outline-primary shadow-sm">
+                                <i class="bi bi-bookmark-fill me-1"></i> 我的收藏
+                            </a>
+                            <a href="/posts/mine" class="btn btn-outline-secondary shadow-sm">
+                                <i class="bi bi-journal-text me-1"></i> 我的文章
+                            </a>
+                        </div>
+
+                        <EditForm Model="updateModel" OnValidSubmit="HandleSubmit">
+                            <DataAnnotationsValidator />
+                            
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold">用户ID</label>
+                                    <input type="text" class="form-control bg-light" value="@user.UserNo" disabled />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold">用户名</label>
+                                    <input type="text" class="form-control bg-light" value="@user.UserName" disabled />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold">邮箱</label>
+                                    <input type="text" class="form-control bg-light" value="@user.Email" disabled />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold">昵称</label>
+                                    <InputText class="form-control" @bind-Value="updateModel.Nickname" placeholder="给自己起个好听的名字" />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold">性别</label>
+                                    <InputSelect class="form-select" @bind-Value="updateModel.Gender">
+                                        <option value="保密">保密</option>
+                                        <option value="男">男</option>
+                                        <option value="女">女</option>
+                                    </InputSelect>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold">所在地</label>
+                                    <InputText class="form-control" @bind-Value="updateModel.HomeCity" placeholder="您的常驻城市" />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold">年龄段</label>
+                                    <InputSelect class="form-select" @bind-Value="updateModel.AgeRange">
+                                        <option value="未设置">未设置</option>
+                                        <option value="70后">70后</option>
+                                        <option value="80后">80后</option>
+                                        <option value="90后">90后</option>
+                                        <option value="00后">00后</option>
+                                        <option value="10后">10后</option>
+                                    </InputSelect>
+                                </div>
+                                <div class="col-md-12">
+                                    <label class="form-label small fw-bold">旅行偏好</label>
+                                    <InputSelect class="form-select" @bind-Value="updateModel.TravelStyle">
+                                        <option value="未设置">未设置</option>
+                                        <option value="家庭出游">家庭出游</option>
+                                        <option value="独自探险">独自探险</option>
+                                        <option value="情侣甜蜜">情侣甜蜜</option>
+                                        <option value="摄影达人">摄影达人</option>
+                                    </InputSelect>
+                                </div>
+                                <div class="col-md-12">
+                                    <label class="form-label small fw-bold">兴趣标签</label>
+                                    <InputText class="form-control" @bind-Value="updateModel.InterestTags" placeholder="多个标签请用逗号分隔，如：古镇,摄影,美食" />
+                                </div>
+                            </div>
+
+                            <div class="d-grid gap-2 mt-4 pt-2">
+                                <button type="submit" class="btn btn-primary" disabled="@isSubmitting">
+                                    @if (isSubmitting)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                                    }
+                                    保存修改
+                                </button>
+                            </div>
+                        </EditForm>
+
+                        @if (!string.IsNullOrEmpty(statusMessage))
+                        {
+                            <div class="alert alert-@(isError ? "danger" : "success") mt-3 animate-fade-in">
+                                @statusMessage
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private UserInfoDto? user;
+    private UpdateUserDto updateModel = new();
+    private bool isLoading = true;
+    private bool isSubmitting;
+    private string? statusMessage;
+    private bool isError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!OperatingSystem.IsBrowser()) return;
+
+        await AuthService.InitializeAsync();
+        if (!AuthService.IsAuthenticated)
+        {
+            Navigation.NavigateTo("/login?returnUrl=/profile");
+            return;
+        }
+
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        isLoading = true;
+        user = await UserService.GetUserInfoAsync();
+        if (user != null)
+        {
+            updateModel = new UpdateUserDto
+            {
+                Nickname = user.Nickname,
+                AvatarUrl = user.AvatarUrl,
+                Gender = user.Gender ?? "保密",
+                AgeRange = user.AgeRange ?? "未设置",
+                HomeCity = user.HomeCity,
+                TravelStyle = user.TravelStyle ?? "未设置",
+                InterestTags = user.InterestTags
+            };
+        }
+        isLoading = false;
+    }
+
+    private async Task HandleAvatarUpload(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            var file = e.File;
+            if (file == null) return;
+
+            statusMessage = "正在上传头像...";
+            isError = false;
+
+            var imageUrl = await PostService.UploadMediaAsync(file);
+            updateModel.AvatarUrl = imageUrl;
+            
+            statusMessage = "头像已上传，请点击下方保存按钮生效。";
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            statusMessage = $"头像上传失败: {ex.Message}";
+        }
+    }
+
+    private async Task HandleSubmit()
+    {
+        isSubmitting = true;
+        statusMessage = null;
+        try
+        {
+            var success = await UserService.UpdateUserInfoAsync(updateModel);
+            if (success)
+            {
+                isError = false;
+                statusMessage = "个人资料已更新。";
+                await LoadDataAsync();
+            }
+            else
+            {
+                isError = true;
+                statusMessage = "更新失败，请重试。";
+            }
+        }
+        catch (Exception ex)
+        {
+            isError = true;
+            statusMessage = $"发生错误: {ex.Message}";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+}

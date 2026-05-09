@@ -1,0 +1,104 @@
+@page "/login"
+@using System.ComponentModel.DataAnnotations
+@using RuralTourism.Web.Client.Services
+@inject AuthService AuthService
+@inject NavigationManager Navigation
+
+@rendermode InteractiveAuto
+
+<PageTitle>登录</PageTitle>
+
+<div class="row justify-content-center mt-5">
+    <div class="col-md-6 col-lg-4">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h3 class="card-title text-center mb-4">用户登录</h3>
+
+                <EditForm Model="loginModel" OnValidSubmit="HandleSubmit" FormName="loginForm">
+                    <DataAnnotationsValidator />
+                    <ValidationSummary class="text-danger small" />
+
+                    <div class="mb-3">
+                        <label class="form-label">用户ID/用户名/邮箱</label>
+                        <InputText class="form-control" @bind-Value="loginModel.UserNameOrEmail" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">密码</label>
+                        <InputText class="form-control" @bind-Value="loginModel.Password" type="password" />
+                        <div class="mt-2 text-end">
+                            <small class="text-muted">还没有账号？</small>
+                            <a href="register" class="btn btn-link btn-sm p-0">立即注册</a>
+                        </div>
+                    </div>
+
+                    <div class="mb-3 form-check">
+                        <input class="form-check-input" type="checkbox" id="rememberMe" @bind="rememberMe" />
+                        <label class="form-check-label" for="rememberMe">记住我（在此设备上保持登录）</label>
+                    </div>
+
+                    <div class="d-grid gap-2 mt-4">
+                        <button class="btn btn-primary" type="submit" disabled="@isSubmitting">
+                            @if (isSubmitting)
+                            {
+                                <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                <span class="ms-1">登录中...</span>
+                            }
+                            else
+                            {
+                                <span>登录</span>
+                            }
+                        </button>
+                    </div>
+                </EditForm>
+
+                @if (!string.IsNullOrEmpty(errorMessage))
+                {
+                    <div class="alert alert-danger mt-3 small">@errorMessage</div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private LoginViewModel loginModel = new();
+    private bool isSubmitting;
+    private string? errorMessage;
+    private bool rememberMe = true;
+
+    private async Task HandleSubmit()
+    {
+        errorMessage = null;
+        isSubmitting = true;
+        try
+        {
+            var result = await AuthService.LoginAsync(new LoginRequest(loginModel.UserNameOrEmail, loginModel.Password), rememberMe);
+            if (result.Success)
+            {
+                Navigation.NavigateTo("/");
+            }
+            else
+            {
+                errorMessage = result.ErrorMessage ?? "无法登录，请稍后重试。";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private sealed class LoginViewModel
+    {
+        [Required(ErrorMessage = "请输入用户名或邮箱")]
+        public string UserNameOrEmail { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "请输入密码")]
+        public string Password { get; set; } = string.Empty;
+    }
+}

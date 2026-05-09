@@ -1,0 +1,225 @@
+@page "/admin/reports"
+@rendermode InteractiveWebAssembly
+@using RuralTourism.Web.Client.Models
+@using RuralTourism.Web.Client.Services
+@inject AdminReportService AdminReportService
+@inject AuthService AuthService
+@inject NavigationManager Navigation
+
+<PageTitle>管理员报表</PageTitle>
+
+<div class="container mt-4 mb-5">
+    <div class="card shadow-sm">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <h4 class="mb-0 text-primary">内容数据报表</h4>
+            <div class="d-flex gap-2">
+                <button class="btn btn-outline-secondary btn-sm" @onclick='() => Navigation.NavigateTo("/resources")'>返回列表</button>
+            </div>
+        </div>
+        <div class="card-body">
+            @if (isLoading)
+            {
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status"></div>
+                </div>
+            }
+            else if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                <div class="alert alert-danger">@errorMessage</div>
+            }
+            else if (report == null)
+            {
+                <div class="alert alert-warning">暂无报表数据。</div>
+            }
+            else
+            {
+                <div class="row g-3 mb-4">
+                    <div class="col-md-3">
+                        <div class="card border-0 bg-light h-100">
+                            <div class="card-body">
+                                <div class="text-muted small">帖子</div>
+                                <div class="fs-4 fw-bold">@report.Summary.Posts</div>
+                                <div class="small text-muted">总热度 @report.Summary.TotalHeat.ToString("0.0")</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card border-0 bg-light h-100">
+                            <div class="card-body">
+                                <div class="text-muted small">乡村</div>
+                                <div class="fs-4 fw-bold">@report.Summary.Villages</div>
+                                <div class="small text-muted">累计浏览 @report.Summary.TotalViews</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card border-0 bg-light h-100">
+                            <div class="card-body">
+                                <div class="text-muted small">景点</div>
+                                <div class="fs-4 fw-bold">@report.Summary.Attractions</div>
+                                <div class="small text-muted">累计互动 @report.Summary.TotalInteractions</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card border-0 bg-light h-100">
+                            <div class="card-body">
+                                <div class="text-muted small">总热度</div>
+                                <div class="fs-4 fw-bold text-success">@report.Summary.TotalHeat.ToString("0.0")</div>
+                                <div class="small text-muted">按浏览、评论、互动综合统计</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <ul class="nav nav-pills mb-3">
+                    <li class="nav-item"><button class="nav-link @(activeTab == "posts" ? "active" : "")" @onclick='() => activeTab = "posts"'>帖子</button></li>
+                    <li class="nav-item"><button class="nav-link @(activeTab == "villages" ? "active" : "")" @onclick='() => activeTab = "villages"'>乡村</button></li>
+                    <li class="nav-item"><button class="nav-link @(activeTab == "attractions" ? "active" : "")" @onclick='() => activeTab = "attractions"'>景点</button></li>
+                </ul>
+
+                @if (activeTab == "posts")
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle">
+                            <thead>
+                                <tr>
+                                    <th>标题</th>
+                                    <th>作者</th>
+                                    <th>浏览</th>
+                                    <th>评论</th>
+                                    <th>点赞</th>
+                                    <th>收藏</th>
+                                    <th>分享</th>
+                                    <th>热度</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in report.Posts)
+                                {
+                                    <tr>
+                                        <td>
+                                            <a href="/posts/@item.Id" target="_blank" class="text-decoration-none">@item.Title</a>
+                                            <div class="small text-muted">@item.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd")</div>
+                                        </td>
+                                        <td>@(item.AuthorName ?? "未知")</td>
+                                        <td>@item.Views</td>
+                                        <td>@item.Comments</td>
+                                        <td>@item.Likes</td>
+                                        <td>@item.Bookmarks</td>
+                                        <td>@item.Shares</td>
+                                        <td class="fw-semibold text-success">@item.HeatScore.ToString("0.0")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else if (activeTab == "villages")
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle">
+                            <thead>
+                                <tr>
+                                    <th>乡村</th>
+                                    <th>浏览</th>
+                                    <th>点评</th>
+                                    <th>村内浏览</th>
+                                    <th>村内点评</th>
+                                    <th>分享</th>
+                                    <th>热度</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in report.Villages)
+                                {
+                                    <tr>
+                                        <td>
+                                            <div class="fw-semibold">@item.Name</div>
+                                            <div class="small text-muted">@item.Address</div>
+                                        </td>
+                                        <td>@item.Views</td>
+                                        <td>@item.Reviews</td>
+                                        <td>@item.ChildResourceViews</td>
+                                        <td>@item.ChildResourceReviews</td>
+                                        <td>@item.Shares</td>
+                                        <td class="fw-semibold text-success">@item.HeatScore.ToString("0.0")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle">
+                            <thead>
+                                <tr>
+                                    <th>景点</th>
+                                    <th>浏览</th>
+                                    <th>点评</th>
+                                    <th>分享</th>
+                                    <th>热度</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in report.Attractions)
+                                {
+                                    <tr>
+                                        <td>
+                                            <div class="fw-semibold">@item.Name</div>
+                                            <div class="small text-muted">@item.Address</div>
+                                        </td>
+                                        <td>@item.Views</td>
+                                        <td>@item.Reviews</td>
+                                        <td>@item.Shares</td>
+                                        <td class="fw-semibold text-success">@item.HeatScore.ToString("0.0")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private AdminReportOverviewDto? report;
+    private bool isLoading = true;
+    private string? errorMessage;
+    private string activeTab = "posts";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!OperatingSystem.IsBrowser()) return;
+
+        await AuthService.InitializeAsync();
+        if (!AuthService.IsAuthenticated)
+        {
+            Navigation.NavigateTo("/login?returnUrl=/admin/reports");
+            return;
+        }
+
+        if (!AuthService.IsInRole("Admin"))
+        {
+            Navigation.NavigateTo("/resources");
+            return;
+        }
+
+        try
+        {
+            report = await AdminReportService.GetOverviewAsync(20);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}

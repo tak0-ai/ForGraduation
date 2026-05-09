@@ -1,0 +1,305 @@
+@page "/favorites"
+@rendermode InteractiveWebAssembly
+@using RuralTourism.Web.Client.Models
+@using RuralTourism.Web.Client.Services
+@inject PostService PostService
+@inject NavigationManager Navigation
+@inject AuthService AuthService
+
+<PageTitle>我的收藏</PageTitle>
+
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3 class="mb-0">收藏夹</h3>
+        <a href="/profile" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i> 返回个人中心
+        </a>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center my-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2 text-muted">正在加载收藏列表...</p>
+        </div>
+    }
+    else if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger shadow-sm">
+            <p>加载失败: @errorMessage</p>
+            <button class="btn btn-primary btn-sm mt-2" @onclick="LoadAsync">重试</button>
+        </div>
+    }
+    else if (posts == null || !posts.Any())
+    {
+        <div class="text-center py-5 bg-light rounded shadow-sm">
+            <i class="bi bi-bookmark fs-1 text-muted mb-3 d-block"></i>
+            <p class="text-muted mb-3">收藏夹空空如也</p>
+            <a href="/" class="btn btn-primary">去发现精彩内容</a>
+        </div>
+    }
+    else
+    {
+        <div class="row">
+            @foreach (var p in posts)
+            {
+                <div class="col-md-6 mb-4">
+                    <article class="card h-100 post-card p-3 position-relative shadow-sm transition-hover">
+                        <div class="card-body d-flex flex-column">
+                            <h5 class="card-title fw-bold text-dark pe-4">@p.Title</h5>
+                            <p class="text-muted small mb-3">发布于 @GetPublicationDate(p)</p>
+                            
+                            @if (previews != null && previews.TryGetValue(p.Id, out var preview))
+                            {
+                                <div class="post-excerpt">@preview.Text</div>
+
+                                <div class="image-preview-container">
+                                    @for (int i = 0; i < Math.Min(2, preview.Images.Count); i++)
+                                    {
+                                        <img src="@preview.Images[i]" alt="图片" class="preview-img" />
+                                    }
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="post-excerpt text-muted italic">正在加载预览...</div>
+                                <div class="image-preview-container"></div>
+                            }
+
+                            <div class="mt-auto d-flex justify-content-between align-items-center">
+                                <a href="@($"/posts/{p.Id}")" target="_blank" class="btn btn-outline-primary btn-sm stretched-link">
+                                    阅读全文
+                                </a>
+                                <button class="btn btn-link text-danger btn-sm p-0 position-relative" style="z-index: 2;" @onclick="() => RemoveFavoriteAsync(p.Id)" title="取消收藏">
+                                    <i class="bi bi-heart-fill fs-5"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </article>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<style>
+    .transition-hover { transition: transform 0.2s, box-shadow 0.2s; }
+    .transition-hover:hover { transform: translateY(-3px); box-shadow: 0 .5rem 1rem rgba(0,0,0,.15)!important; }
+    .post-excerpt {
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: #555;
+        margin-bottom: 1rem;
+        min-height: 4.5em; /* approximate 3 lines */
+    }
+    .image-preview-container {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 1rem;
+        height: 120px;
+        overflow: hidden;
+    }
+    .preview-img {
+        width: 100px;
+        height: 100%;
+        object-fit: cover;
+        border-radius: 4px;
+        flex-shrink: 0;
+    }
+</style>
+
+@code {
+    private List<PostSummaryDto>? posts;
+    private Dictionary<string, PostPreview>? previews;
+    private bool isLoading = true;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!OperatingSystem.IsBrowser()) { isLoading = true; return; }
+        await InitAndLoadAsync();
+    }
+
+    private async Task InitAndLoadAsync()
+    {
+        try 
+        {
+            await AuthService.InitializeAsync();
+            if (AuthService.IsAuthenticated)
+            {
+                await LoadAsync();
+            }
+            else
+            {
+                Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(Navigation.Uri)}");
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"认证初始化失败: {ex.Message}";
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+        try 
+        {
+            posts = await PostService.GetMyCollectionsAsync();
+            previews = new Dictionary<string, PostPreview>();
+            
+            // 并行加载详情以构建预览，与首页保持一致
+            if (posts != null && posts.Count > 0)
+            {
+                var tasks = posts.Select(async s =>
+                {
+                    try
+                    {
+                        var detail = await PostService.GetPostAsync(s.Id);
+                        var preview = BuildPreview(detail);
+                        // 线程安全问题？Select是串行生成Task，但是在多线程环境下Add Dictionary会有问题
+                        // 不过 Blazor WebAssembly 是单线程模型 (目前)，所以通常安全。
+                        // 为了稳妥，可以在 await Task.WhenAll 后再组装，或者直接赋值因为 WASM 是单线程。
+                        if (previews != null) previews[s.Id] = preview;
+                        StateHasChanged(); // 渐进式更新 UI
+                    }
+                    catch
+                    {
+                        if (previews != null) previews[s.Id] = new PostPreview { Text = "无法加载预览", Images = new List<string>() };
+                    }
+                });
+
+                // 不等待全部完成就开始让 UI 渲染 (StateHasChanged inside loop) 
+                // 或者 await Task.WhenAll(tasks);
+                _ = Task.WhenAll(tasks); // Fire and forget loading of details to unblock UI? 
+                // Better to await it if we want "Loading..." state to finish, but for better UX showing skeleton then content is okay.
+                // However, the original code had `isLoading` wrapping everything.
+                // Let's await it to keep it simple, but set isLoading false *after* summary load?
+                // Home.razor awaits it.
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"无法加载收藏列表: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task RemoveFavoriteAsync(string postId)
+    {
+        try 
+        {
+            // Toggle off. 1 = Bookmark
+            await PostService.TogglePostReactionAsync(postId, 1);
+            // Refresh list
+            if (posts != null)
+            {
+                var item = posts.FirstOrDefault(p => p.Id == postId);
+                if (item != null) 
+                {
+                    posts.Remove(item);
+                    if (previews != null) previews.Remove(postId);
+                }
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to remove favorite: {ex.Message}");
+        }
+    }
+
+    private string GetPublicationDate(PostSummaryDto post)
+    {
+        var date = post.PublishedAt ?? post.CreatedAt;
+        return date.ToLocalTime().ToString("yyyy/MM/dd");
+    }
+
+    private PostPreview BuildPreview(PostDetailDto? detail)
+    {
+        var preview = new PostPreview();
+        if (detail == null) return preview;
+
+        var sb = new System.Text.StringBuilder();
+        foreach (var b in detail.Blocks.OrderBy(b => b.Order))
+        {
+            var text = StripHtml(b.Content ?? string.Empty).Trim();
+            if (!string.IsNullOrEmpty(text))
+            {
+                if (sb.Length > 0) sb.Append(' ');
+                sb.Append(text);
+            }
+        }
+
+        var full = sb.ToString();
+        if (full.Length <= 150)
+        {
+            preview.Text = full;
+            preview.HasMore = false;
+        }
+        else
+        {
+            preview.Text = full.Substring(0, 150);
+            preview.HasMore = true;
+        }
+
+        var images = new List<string>();
+        // 首选封面图
+        if (!string.IsNullOrWhiteSpace(detail.CoverMediaId))
+        {
+             images.Add(detail.CoverMediaId);
+        }
+
+        var imgRegex = new System.Text.RegularExpressions.Regex("<img[^>]+src=\\\"(?<src>[^\\\"]+)\\\"", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        foreach (var b in detail.Blocks.OrderBy(b => b.Order))
+        {
+            if (images.Count >= 2) break;
+            
+             // 避免重复封面图 (简单判断 URL)
+            string? foundImg = null;
+
+            if (b.Type == BlockType.Image && !string.IsNullOrWhiteSpace(b.Content))
+            {
+                foundImg = b.Content;
+            }
+            else if (!string.IsNullOrWhiteSpace(b.Content))
+            {
+                var m = imgRegex.Match(b.Content);
+                if (m.Success)
+                {
+                    foundImg = m.Groups["src"].Value;
+                }
+            }
+
+            if (foundImg != null && !images.Contains(foundImg))
+            {
+                images.Add(foundImg);
+            }
+        }
+
+        preview.Images = images;
+        return preview;
+    }
+
+    private static string StripHtml(string html)
+    {
+        if (string.IsNullOrEmpty(html)) return string.Empty;
+        var noTags = System.Text.RegularExpressions.Regex.Replace(html, "<.*?>", string.Empty);
+        return System.Net.WebUtility.HtmlDecode(noTags);
+    }
+
+    private sealed class PostPreview
+    {
+        public string Text { get; set; } = string.Empty;
+        public bool HasMore { get; set; }
+        public List<string> Images { get; set; } = new();
+    }
+}

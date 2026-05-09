@@ -1,0 +1,93 @@
+@using System
+@using RuralTourism.Web.Client.Services
+@inject AuthService AuthService
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<header class="top-row ps-3 navbar navbar-dark navbar-custom">
+    <div class="container-fluid d-flex align-items-center justify-content-between">
+        <a class="navbar-brand brand-title" href="">镇江旅游</a>
+        <nav class="nav flex-row nav-links">
+            <a class="nav-link" href="/posts" target="_blank">
+                <span class="bi bi-journal-text" aria-hidden="true"></span> 全部帖子
+            </a>
+            @if (!AuthService.IsAuthenticated)
+            {
+                <NavLink class="nav-link" href="login">
+                    <span class="bi bi-box-arrow-in-right-nav-menu" aria-hidden="true"></span> 登录
+                </NavLink>
+                <a class="nav-link" href="register" target="_blank">
+                    <span class="bi bi-person-plus" aria-hidden="true"></span> 注册
+                </a>
+            }
+            else
+            {
+                <a class="nav-link" href="posts/edit" target="_blank">
+                    <span class="bi bi-pencil-square" aria-hidden="true"></span> 发表游记
+                </a>
+                <a class="nav-link" href="/resources" target="_blank">
+                    <span class="bi bi-geo-alt" aria-hidden="true"></span> 乡村游
+                </a>
+                <a class="nav-link" href="chat" target="_blank">
+                    <span class="bi bi-chat-dots" aria-hidden="true"></span> 驴友谈
+                </a>
+                <a class="nav-link" href="/tour-plans" target="_blank">
+                    <span class="bi bi-map" aria-hidden="true"></span> 行程规划
+                </a>
+                
+                <a class="nav-link" href="notifications" target="_blank">
+                    <span class="bi bi-bell" aria-hidden="true"></span> 消息通知
+                </a>
+                <a class="nav-link" href="/profile" target="_blank">
+                    <span class="bi bi-person-circle" aria-hidden="true"></span> 个人中心
+                </a>
+                @if (AuthService.IsInRole("Admin"))
+                {
+                    <a class="nav-link" href="/admin/posts/review" target="_blank">
+                        <span class="bi bi-check2-square" aria-hidden="true"></span> 帖子审核
+                    </a>
+                    <a class="nav-link" href="/admin/reports" target="_blank">
+                        <span class="bi bi-graph-up" aria-hidden="true"></span> 报表
+                    </a>
+                    <a class="nav-link" href="/admin/users" target="_blank">
+                        <span class="bi bi-shield-lock" aria-hidden="true"></span> 用户管理
+                    </a>
+                }
+                <button type="button" class="btn btn-link nav-link" @onclick="LogoutAsync">
+                    <span class="bi bi-box-arrow-right-nav-menu" aria-hidden="true"></span> 登出
+                </button>
+            }
+        </nav>
+    </div>
+</header>
+
+@code {
+    protected override void OnInitialized()
+    {
+        // Subscribe to auth changes
+        AuthService.AuthenticationStateChanged += OnAuthStateChanged;
+
+        // Trigger initialization only when running in the browser (JS interop available).
+        // Use fire-and-forget to avoid blocking server prerender.
+        if (OperatingSystem.IsBrowser())
+        {
+            _ = AuthService.InitializeAsync();
+        }
+    }
+
+    private void OnAuthStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LogoutAsync()
+    {
+        await AuthService.LogoutAsync();
+        Navigation.NavigateTo("/");
+    }
+
+    public void Dispose()
+    {
+        AuthService.AuthenticationStateChanged -= OnAuthStateChanged;
+    }
+}

@@ -1,0 +1,1417 @@
+@page "/chat"
+@rendermode InteractiveWebAssembly
+@using RuralTourism.Web.Client.Models
+@using RuralTourism.Web.Client.Services
+@inject ChatService ChatService
+@inject AuthService AuthService
+@inject UserService UserService 
+@inject TourPlanService TourPlanService
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>驴友谈</PageTitle>
+<div class="container-fluid chat-container mt-3">
+    <div class="row h-100 g-0 border rounded shadow-sm bg-white" style="min-height: 80vh;">
+        <!-- 聊天列表（左侧） -->
+        <div class="col-md-4 col-lg-3 border-end d-flex flex-column list-column">
+            <div class="p-3 border-bottom bg-light d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">消息列表</h5>
+                <div class="d-flex align-items-center">
+                    <button class="btn btn-sm btn-outline-secondary rounded-circle me-2 position-relative" @onclick="ShowRequestsModal" title="通知中心">
+                        <i class="bi bi-bell"></i>
+                        @if (pendingRequestsCount > 0)
+                        {
+                            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size: 0.6rem;">
+                                @pendingRequestsCount
+                                <span class="visually-hidden">未读</span>
+                            </span>
+                        }
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-primary rounded-circle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-plus-lg"></i>
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="javascript:void(0)" @onclick="ShowSearchModal">加好友/群</a></li>
+                            <li><a class="dropdown-item" href="javascript:void(0)" @onclick="ShowCreateGroupModal">创建群聊</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="chat-list overflow-auto flex-grow-1">
+                @if (chatRooms == null)
+                {
+                     <div class="text-center p-3 text-muted">加载中...</div>
+                }
+                else if (chatRooms.Count == 0)
+                {
+                    <div class="text-center p-3 text-muted">暂无聊天记录</div>
+                }
+                else
+                {
+                    @foreach (var room in chatRooms)
+                    {
+                        <div class="chat-item p-3 border-bottom @(activeRoomId == room.Id ? "active" : "")" 
+                             @onclick="() => SelectRoom(room)" role="button">
+                            <div class="d-flex align-items-center">
+                                <img src="@room.GetCoverUrl()" class="rounded-circle me-3" width="48" height="48" style="object-fit: cover;"/>
+                                <div class="flex-grow-1 overflow-hidden">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <h6 class="mb-0 text-truncate">@room.Name</h6>
+                                        @if (room.LastMessage != null)
+                                        {
+                                            @* <small class="text-muted" style="font-size: 0.75rem;">@room.LastMessage.SentAt.ToLocalTime().ToString("MM-dd HH:mm")</small>注释 *@
+                                        }
+                                    </div>
+                                    <p class="mb-0 text-muted text-truncate small">
+                                        @(room.LastMessage?.Content ?? "暂无消息")
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+        <!-- 聊天窗口（右侧） -->
+        <div class="@(activeRoom?.IsGroup == true ? "col-md-5 col-lg-6" : "col-md-8 col-lg-9") d-flex flex-column chat-window border-end">
+            @if (activeRoom != null)
+            {
+                <!-- 头部信息 -->
+                <div class="p-3 border-bottom bg-light d-flex align-items-center justify-content-between">
+                    <div class="d-flex align-items-center">
+                        <button class="btn btn-link d-md-none me-2 text-dark" @onclick="() => activeRoom = null">
+                            <i class="bi bi-arrow-left"></i>
+                        </button>
+                        <h5 class="mb-0">@activeRoom.Name</h5>
+                        @if (activeRoom.IsGroup)
+                        {
+                            <span class="badge bg-secondary ms-2"> (@activeRoom.Members.Count 人)</span>
+                        }
+                    </div>
+                    @if (activeRoom.IsGroup)
+                    {
+                        <div class="d-flex align-items-center">
+                            @if (!activeRoom.IsArchived)
+                        {
+                            var myMember = activeRoom.Members.FirstOrDefault(m => m.UserId == currentUserId);
+                            if (myMember != null)
+                            {
+                                <button class="btn btn-link text-muted me-2" title="邀请好友" @onclick="ShowInviteModal">
+                                    <i class="bi bi-person-plus-fill"></i>
+                                </button>
+                                <div class="dropdown">
+                                    <button class="btn btn-link text-muted" type="button" data-bs-toggle="dropdown"><i class="bi bi-three-dots"></i></button>
+                                    <ul class="dropdown-menu">
+                                        @if (myMember.Role == 0 || myMember.Role == 1) // Owner or Admin
+                                        {
+                                            <li><a class="dropdown-item" href="javascript:void(0)" @onclick="ShowRenameModal">修改群名</a></li>
+                                        }
+                                        
+                                        @if (myMember.Role == 0) // Owner
+                                        {
+                                            <li><hr class="dropdown-divider"></li>
+                                            <li><a class="dropdown-item text-danger" href="javascript:void(0)" @onclick="DismissGroup">解散群聊</a></li>
+                                        }
+                                        else 
+                                        {
+                                            <li><hr class="dropdown-divider"></li>
+                                            <li><a class="dropdown-item text-danger" href="javascript:void(0)" @onclick="LeaveGroup">退出群聊</a></li>
+                                        }
+                                    </ul>
+                                </div>
+                            }
+                        }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="dropdown">
+                            <button class="btn btn-link text-muted" type="button" data-bs-toggle="dropdown"><i class="bi bi-three-dots"></i></button>
+                            <ul class="dropdown-menu">
+                                @if(!isFriendDeleted) 
+                                {
+                                    <li><a class="dropdown-item text-danger" href="javascript:void(0)" @onclick="DeleteFriend">删除好友</a></li>
+                                }
+                                else
+                                {
+                                    <li><a class="dropdown-item text-primary" href="javascript:void(0)" @onclick="() => SendFriendRequest(activeRoom.Members.First(m => m.UserId != currentUserId).UserId)">加好友</a></li>
+                                }
+                            </ul>
+                        </div>
+                    }
+                </div>
+
+                <!-- 消息区域 -->
+                <div class="flex-grow-1 p-3 overflow-auto bg-light" id="message-container">
+                    @foreach (var msg in messages)
+                    {
+                        bool isMine = msg.AuthorId == currentUserId;
+                        <div class="d-flex mb-3 @(isMine ? "justify-content-end" : "justify-content-start")">
+                            @if (!isMine)
+                            {
+                                <a href="@GetPublicProfileUrl(msg.AuthorUserNo)">
+                                    <img src="@msg.GetAvatarUrl()" class="rounded-circle me-2 align-self-start" width="36" height="36" />
+                                </a>
+                            }
+                            
+                            <div class="message-bubble-wrapper d-flex flex-column @(isMine ? "align-items-end" : "align-items-start")" style="max-width: 75%;">
+                                @if (!isMine && activeRoom.IsGroup)
+                                {
+                                    <a class="text-muted mb-1 ms-1 text-decoration-none" style="font-size: 0.75rem;" href="@GetPublicProfileUrl(msg.AuthorUserNo)">@msg.AuthorName</a>
+                                }
+                                <div class="message-bubble p-2 rounded-3 shadow-sm @(isMine ? "bg-primary text-white" : "bg-white text-dark")">
+                                    @if (TryParseSharedPlan(msg.Content, out var sharedPlan))
+                                    {
+                                        <a href="@($"/tour-plans?planId={sharedPlan.Id}")" class="shared-plan-card @(isMine ? "shared-plan-card-mine" : "") text-decoration-none">
+                                            <div class="fw-semibold"><i class="bi bi-map me-1"></i>@sharedPlan.Title</div>
+                                            <div class="small opacity-75">起点：@sharedPlan.StartAddress</div>
+                                            <div class="small opacity-75">途经点：@sharedPlan.WaypointCount 个</div>
+                                            <div class="small mt-1 text-decoration-underline">点击查看行程</div>
+                                        </a>
+                                    }
+                                    else if (TryParseSharedPost(msg.Content, out var sharedPost))
+                                    {
+                                        <a href="@($"/posts/{sharedPost.Id}")" class="shared-post-card @(isMine ? "shared-post-card-mine" : "") text-decoration-none">
+                                            @if (!string.IsNullOrWhiteSpace(sharedPost.CoverUrl))
+                                            {
+                                                <img src="@sharedPost.CoverUrl" class="shared-post-cover" />
+                                            }
+                                            <div class="fw-semibold"><i class="bi bi-file-earmark-richtext me-1"></i>@sharedPost.Title</div>
+                                            <div class="small mt-1 text-decoration-underline">点击查看帖子</div>
+                                        </a>
+                                    }
+                                    else
+                                    {
+                                        <div class="message-content" style="white-space: pre-wrap; word-break: break-word;">@msg.Content</div>
+                                    }
+                                </div>
+                                <small class="text-muted mt-1 mx-1" style="font-size: 0.7rem;">@msg.SentAt.ToLocalTime().ToString("HH:mm")</small>
+                            </div>
+
+                            @if (isMine)
+                            {
+                                <a href="@GetPublicProfileUrl(msg.AuthorUserNo)">
+                                    <img src="@msg.GetAvatarUrl()" class="rounded-circle ms-2 align-self-start" width="36" height="36" />
+                                </a>
+                            }
+                        </div>
+                    }
+                </div>
+
+                <!-- 输入区域 -->
+                @if (activeRoom.IsArchived)
+                {
+                    <div class="p-3 border-top bg-light text-center text-muted">
+                        该群聊已解散
+                     </div>
+                }
+                else if (isFriendDeleted)
+                {
+                     <div class="p-3 border-top bg-light text-center text-muted">
+                        你已删除该好友，<a href="javascript:void(0)" @onclick="() => SendFriendRequest(activeRoom.Members.First(m => m.UserId != currentUserId).UserId)">重新添加</a>
+                     </div>
+                }
+                else if (activeRoom.IsGroup && activeRoom.Members.Any(m => m.UserId == currentUserId && m.MuteUntil > DateTime.UtcNow))
+                {
+                     <div class="p-3 border-top bg-light text-center text-danger">
+                        您已被禁言
+                     </div>
+                }
+                else
+                {
+                    <div class="p-3 border-top bg-white">
+                        @if (activeRoom.IsGroup)
+                        {
+                            <div class="mb-2">
+                                <button class="btn btn-outline-success btn-sm" @onclick="OpenSharePlanPanelAsync" disabled="@(myTourPlans.Count == 0)">
+                                    <i class="bi bi-share me-1"></i>分享行程
+                                </button>
+                            </div>
+                        }
+                        <div class="input-group">
+                            <input type="text" class="form-control" placeholder="输入消息..." 
+                                   @bind="newMessage" @bind:event="oninput" 
+                                   @onkeydown="HandleKeyDown" />
+                            <button class="btn btn-primary" @onclick="SendMessage" disabled="@string.IsNullOrWhiteSpace(newMessage)">
+                                <i class="bi bi-send-fill"></i> 发送
+                            </button>
+                        </div>
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="d-flex flex-column align-items-center justify-content-center h-100 text-muted bg-light">
+                    <i class="bi bi-chat-square-text display-1 mb-3 text-secondary" style="opacity: 0.2;"></i>
+                    <p class="fs-5">选择一个聊天或者创建新对话</p>
+                </div>
+            }
+        </div>
+
+        <!-- 群成员列表 -->
+        @if (activeRoom?.IsGroup == true)
+        {
+            <div class="col-md-3 col-lg-3 d-none d-md-flex flex-column bg-light border-start">
+                <div class="p-3 border-bottom">
+                    @if (showMemberSearch)
+                    {
+                        <div class="input-group input-group-sm">
+                            <input type="text" class="form-control" placeholder="搜索成员..." @bind="memberSearchQuery" @bind:event="oninput" autofocus />
+                            <button class="btn btn-outline-secondary" @onclick="() => { showMemberSearch = false; memberSearchQuery = string.Empty; }"><i class="bi bi-x"></i></button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0">群聊成员 @activeRoom.Members.Count</h6>
+                            <button class="btn btn-sm btn-link" @onclick="() => showMemberSearch = true"><i class="bi bi-search"></i></button>
+                        </div>
+                    }
+                </div>
+                <div class="overflow-auto flex-grow-1 p-2">
+                    @{
+                        var filteredMembers = string.IsNullOrWhiteSpace(memberSearchQuery) 
+                            ? activeRoom.Members 
+                            : activeRoom.Members.Where(m => m.UserName.Contains(memberSearchQuery, StringComparison.OrdinalIgnoreCase)).ToList();
+                    }
+                    @foreach(var m in filteredMembers)
+                    {
+                        <div class="d-flex align-items-center p-2 member-item border-bottom" role="button" @onclick="() => OnMemberClick(m)" style="cursor: pointer;">
+                            <a href="@GetPublicProfileUrl(m.UserNo)" @onclick:stopPropagation="true"><img src="@(string.IsNullOrEmpty(m.AvatarUrl) ? "https://github.com/identicons/default.png" : m.AvatarUrl)" class="rounded-circle me-2" width="32" height="32" style="object-fit:cover;"/></a>
+                            <a href="@GetPublicProfileUrl(m.UserNo)" class="flex-grow-1 text-truncate text-decoration-none text-dark" @onclick:stopPropagation="true">@m.UserName</a>
+                            @if(m.Role == 0) { <span class="badge bg-warning text-dark me-1">群主</span> }
+                            @if(m.Role == 1) { <span class="badge bg-info me-1">管理员</span> }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@if (showSharePlanPanel)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">选择现有行程分享</h5>
+                    <button type="button" class="btn-close" @onclick="CloseSharePlanPanel"></button>
+                </div>
+                <div class="modal-body">
+                    @if (myTourPlans.Count == 0)
+                    {
+                        <div class="text-muted">暂无可分享行程。</div>
+                    }
+                    else
+                    {
+                        <InputSelect class="form-select" @bind-Value="sharePlanId">
+                            @foreach (var plan in myTourPlans)
+                            {
+                                <option value="@plan.Id">@plan.Title</option>
+                            }
+                        </InputSelect>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary" @onclick="CloseSharePlanPanel">取消</button>
+                    <button class="btn btn-success" @onclick="SharePlanAsync" disabled="@(myTourPlans.Count == 0 || string.IsNullOrWhiteSpace(sharePlanId))">确认分享</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (activeModal == ModalType.Search)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">综合搜索</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                   <div class="input-group mb-3">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control" @bind="searchQuery" @bind:event="oninput" @onkeydown="@(e => e.Key == "Enter" ? SearchAsync() : Task.CompletedTask)" placeholder="输入用户ID/群号/名称...">
+                        <button class="btn btn-primary" @onclick="SearchAsync">搜索</button>
+                    </div>
+                    
+                    <ul class="nav nav-tabs mb-3">
+                        <li class="nav-item">
+                            <a class="nav-link @(searchType == "All" ? "active" : "")" href="javascript:void(0)" @onclick='() => SetSearchType("All")'>全部</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link @(searchType == "User" ? "active" : "")" href="javascript:void(0)" @onclick='() => SetSearchType("User")'>用户</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link @(searchType == "Group" ? "active" : "")" href="javascript:void(0)" @onclick='() => SetSearchType("Group")'>群聊</a>
+                        </li>
+                    </ul>
+
+                    <div class="search-results" style="max-height: 400px; overflow-y: auto;">
+                        @if (isSearching)
+                        {
+                            <div class="text-center py-3 text-muted">搜索中...</div>
+                        }
+                        else if (searchResults != null)
+                        {
+                            if (searchResults.Count == 0)
+                            {
+                                <div class="text-center py-3 text-muted">未找到相关结果</div>
+                            }
+                            else
+                            {
+                                @foreach (var item in searchResults)
+                                {
+                                    <div class="d-flex align-items-center p-2 border-bottom">
+                                        <img src="@item.GetAvatarUrl()" class="rounded-circle me-3" width="48" height="48" style="object-fit: cover;"/>
+                                        <div class="flex-grow-1">
+                                            <h6 class="mb-0">@item.Name 
+                                                <span class="badge @(item.Type == "Group" ? "bg-info" : "bg-success") ms-2">@item.Type @(item.NumberId.HasValue ? $"#{item.NumberId}" : "")</span>
+                                            </h6>
+                                            @if (!string.IsNullOrEmpty(item.Description))
+                                            {
+                                                <small class="text-muted">@item.Description</small>
+                                            }
+                                        </div>
+                                        <div>
+                                            @if (item.Type == "User")
+                                            {
+                                                if (item.Id == currentUserId)
+                                                {
+                                                     <button class="btn btn-sm btn-secondary" disabled>我自己</button>
+                                                }
+                                                else if (item.RelationStatus == "Connected")
+                                                {
+                                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => StartChatWithUser(item.Id)">私聊</button>
+                                                }
+                                                else if (item.RelationStatus == "Pending")
+                                                {
+                                                    <button class="btn btn-sm btn-secondary" disabled>等待验证</button>
+                                                }
+                                                else if (item.RelationStatus == "Inbound")
+                                                {
+                                                     <button class="btn btn-sm btn-primary" @onclick="ShowRequestsModal">查看申请</button>
+                                                }
+                                                else
+                                                {
+                                                    <button class="btn btn-sm btn-primary" @onclick="() => SendFriendRequest(item.Id)">添加好友</button>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                if (item.RelationStatus == "Connected" || item.IsJoined)
+                                                {
+                                                    <button class="btn btn-sm btn-secondary" disabled>已加入</button>
+                                                }
+                                                else if (item.RelationStatus == "Pending")
+                                                {
+                                                    <button class="btn btn-sm btn-secondary" disabled>等待验证</button>
+                                                }
+                                                else
+                                                {
+                                                     <button class="btn btn-sm btn-primary" @onclick="() => JoinGroup(item.Id)">申请加入</button>
+                                                }
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (activeModal == ModalType.Requests)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">通知中心</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    @if (myRequests == null)
+                    {
+                         <div class="text-center p-3 text-muted">加载中...</div>
+                    }
+                    else if (myRequests.Count == 0)
+                    {
+                         <div class="text-center p-3 text-muted">暂无新通知</div>
+                    }
+                    else
+                    {
+                        <div class="list-group">
+                            @foreach (var req in myRequests)
+                            {
+                                <div class="list-group-item d-flex justify-content-between align-items-center">
+                                    <div class="d-flex align-items-center">
+                                        <img src="@req.GetAvatarUrl()" class="rounded-circle me-2" width="40" height="40" />
+                                        <div>
+                                            <div class="fw-bold">@req.RequesterName</div>
+                                            <div class="text-muted small">
+                                                @if (req.Type == ChatRequestType.Friend)
+                                                {
+                                                    <span>请求添加你为好友</span>
+                                                }
+                                                else
+                                                {
+                                                    <span>申请加入群聊 <strong>@req.TargetName</strong></span>
+                                                }
+                                            </div>
+                                            @* <small class="text-muted" style="font-size:0.75rem;">@req.CreatedAt.ToLocalTime().ToString("MM-dd HH:mm")</small> 注释*@
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <button class="btn btn-sm btn-success me-1" @onclick="() => HandleRequest(req, true)">通过</button>
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => HandleRequest(req, false)">拒绝</button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (activeModal == ModalType.MemberAction && selectedMember != null)
+{
+    var myRole = activeRoom!.Members.First(m => m.UserId == currentUserId).Role;
+    bool canManage = (myRole == 0) // Owner
+                     || (myRole == 1 && selectedMember.Role > 1); // Admin can manage Members (2)
+                     
+    if (selectedMember.Role == 0) canManage = false; // Cannot manage owner
+    if (myRole == 1 && selectedMember.Role == 1) canManage = false; // Admin cannot manage Admin
+
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@selectedMember.UserName</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body d-grid gap-2">
+                    @{
+                        bool isFriend = chatRooms?.Any(r => !r.IsGroup && r.Members.Any(m => m.UserId == selectedMember.UserId)) == true;
+                    }
+                    <button class="btn btn-outline-primary" @onclick="StartChatOrAddFriend">
+                        @(isFriend ? "私聊" : "添加好友")
+                    </button>
+                    @if (canManage)
+                    {
+                        @if (myRole == 0 && selectedMember.Role != 0) // Only Owner can manage admins
+                        {
+                            if (selectedMember.Role == 1)
+                            {
+                                <button class="btn btn-outline-secondary" @onclick="() => SetAdminRole(false)">取消管理员</button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-outline-info" @onclick="() => SetAdminRole(true)">设为管理员</button>
+                            }
+                        }
+                        
+                        <button class="btn btn-warning" @onclick='() => activeModal = ModalType.MuteDuration'>禁言</button>
+                        <button class="btn btn-danger" @onclick="PerformKick">踢出群聊</button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (activeModal == ModalType.MuteDuration)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">设置禁言时间</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">时长 (分钟)</label>
+                        <input type="number" class="form-control" @bind="muteMinutes" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick='() => activeModal = ModalType.MemberAction'>返回</button>
+                    <button type="button" class="btn btn-primary" @onclick="PerformMute">确认</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (activeModal == ModalType.RenameGroup)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">修改群名</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="text" class="form-control" @bind="newGroupName" />
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">取消</button>
+                    <button type="button" class="btn btn-primary" @onclick="PerformRename">确认</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (activeModal == ModalType.InviteGroup)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">邀请好友入群</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body" style="max-height: 50vh; overflow-y: auto;">
+                    <p class="text-muted mb-2">选择未入群的好友：</p>
+                    @if (myFriends == null)
+                    {
+                        <div class="text-center text-muted">加载好友列表...</div>
+                    }
+                    else
+                    {
+                        // Filter out existing members
+                        var existingIds = activeRoom?.Members.Select(m => m.UserId).ToHashSet() ?? new HashSet<string>();
+                        var candidates = myFriends.Where(f => !existingIds.Contains(f.Id)).ToList();
+                        
+                        if (candidates.Count == 0)
+                        {
+                            <div class="text-center text-muted">没有可邀请的好友</div>
+                        }
+                        else 
+                        {
+                             <div class="list-group">
+                                @foreach (var friend in candidates)
+                                {
+                                    <label class="list-group-item d-flex align-items-center">
+                                        <input class="form-check-input me-3" type="checkbox" 
+                                               checked="@selectedFriendIds.Contains(friend.Id)"
+                                               @onchange="e => ToggleFriendSelection(friend.Id, (bool)e.Value!)">
+                                        <img src="@friend.GetAvatarUrl()" class="rounded-circle me-3" width="32" height="32" />
+                                        <span>@friend.Nickname (@friend.UserName)</span>
+                                    </label>
+                                }
+                            </div>
+                        }
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">取消</button>
+                    <button type="button" class="btn btn-primary" disabled="@(selectedFriendIds.Count == 0)" @onclick="InviteFriendsToGroup">
+                        发送邀请 (@selectedFriendIds.Count)
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (activeModal == ModalType.CreateGroup)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">发起群聊</h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body" style="max-height: 50vh; overflow-y: auto;">
+                    <p class="text-muted mb-2">选择好友加入群聊：</p>
+                    @if (myFriends == null)
+                    {
+                        <div class="text-center text-muted">加载好友列表...</div>
+                    }
+                    else if (myFriends.Count == 0)
+                    {
+                         <div class="text-center text-muted">暂无好友，去添加一些吧</div>
+                    }
+                    else
+                    {
+                         <div class="list-group">
+                            @foreach (var friend in myFriends)
+                            {
+                                <label class="list-group-item d-flex align-items-center">
+                                    <input class="form-check-input me-3" type="checkbox" 
+                                           checked="@selectedFriendIds.Contains(friend.Id)"
+                                           @onchange="e => ToggleFriendSelection(friend.Id, (bool)e.Value!)">
+                                    <img src="@friend.GetAvatarUrl()" class="rounded-circle me-3" width="32" height="32" />
+                                    <span>@friend.Nickname (@friend.UserName)</span>
+                                </label>
+                            }
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">取消</button>
+                    <button type="button" class="btn btn-primary" disabled="@(selectedFriendIds.Count == 0)" @onclick="CreateGroupChat">
+                        确认创建 (@selectedFriendIds.Count)
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .chat-item {
+        transition: background-color 0.2s;
+    }
+    .chat-item:hover {
+        background-color: #f8f9fa;
+    }
+    .chat-item.active {
+        background-color: #e9ecef;
+    }
+    .message-bubble {
+        position: relative;
+    }
+
+    .shared-plan-card {
+        display: block;
+        color: inherit;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        padding: 8px 10px;
+        background: #f8f9fa;
+        min-width: 220px;
+    }
+
+    .shared-plan-card-mine {
+        border-color: rgba(255,255,255,.6);
+        background: rgba(255,255,255,.18);
+    }
+
+    .shared-post-card {
+        display: block;
+        color: inherit;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        padding: 8px 10px;
+        background: #f8f9fa;
+        min-width: 220px;
+    }
+
+    .shared-post-card-mine {
+        border-color: rgba(255,255,255,.6);
+        background: rgba(255,255,255,.18);
+    }
+
+    .shared-post-cover {
+        width: 100%;
+        max-width: 260px;
+        height: 96px;
+        object-fit: cover;
+        border-radius: 6px;
+        margin-bottom: 6px;
+    }
+
+    .shared-resource-card {
+        display: block;
+        color: inherit;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        padding: 8px 10px;
+        background: #f8f9fa;
+        min-width: 220px;
+    }
+
+    .shared-resource-card-mine {
+        border-color: rgba(255,255,255,.6);
+        background: rgba(255,255,255,.18);
+    }
+
+    .shared-resource-cover {
+        width: 100%;
+        max-width: 260px;
+        height: 96px;
+        object-fit: cover;
+        border-radius: 6px;
+        margin-bottom: 6px;
+    }
+
+    /* 简单的响应式布局 */
+    @@media (max-width: 767.98px) {
+        .list-column {
+            display: @(activeRoom == null ? "flex" : "none") !important;
+            width: 100% !important;
+        }
+        .chat-window {
+            display: @(activeRoom != null ? "flex" : "none") !important;
+        }
+    }
+</style>
+
+@code {
+private enum ModalType { None, Search, CreateGroup, Requests, MemberAction, MuteDuration, RenameGroup, InviteGroup }
+private ChatMemberDto? selectedMember;
+private int muteMinutes = 5;
+private string newGroupName = "";
+private bool showMemberSearch = false;
+private string memberSearchQuery = "";
+
+// ... existing fields ...
+    
+private void ShowInviteModal()
+{
+    activeModal = ModalType.InviteGroup;
+    selectedFriendIds.Clear();
+    // Load friends if needed
+    if (myFriends == null)
+    {
+         _ = LoadFriends();
+    }
+}
+    
+private async Task LoadFriends()
+{
+     try
+    {
+        myFriends = await ChatService.GetFriendsAsync();
+        StateHasChanged();
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine(ex.Message);
+        myFriends = new List<UserInfoDto>();
+    }
+}
+    
+private async Task SetAdminRole(bool isAdmin)
+{
+    if (activeRoom == null || selectedMember == null) return;
+        
+    await ChatService.SetGroupRoleAsync(activeRoom.Id, selectedMember.UserId, isAdmin);
+    selectedMember.Role = isAdmin ? 1 : 2; // Update local state
+    // Re-sort members locally? Or reload room.
+    // Reloading is safer to ensure correct order
+    await LoadRooms();
+    CloseModal();
+}
+    
+private async Task InviteFriendsToGroup()
+{
+    if (activeRoom == null || selectedFriendIds.Count == 0) return;
+        
+    var friendIds = selectedFriendIds.ToList();
+        
+    foreach(var uid in friendIds)
+    {
+         await ChatService.InviteToGroupAsync(activeRoom.Id, uid);
+    }
+        
+    CloseModal();
+    await LoadRooms(); // Refresh to see if they were added immediately
+}
+    
+    private async Task LeaveGroup()
+    {
+        if (activeRoom == null || !activeRoom.IsGroup) return;
+        if (await JS.InvokeAsync<bool>("confirm", "确定要退出群聊吗？"))
+        {
+            await ChatService.LeaveGroupAsync(activeRoom.Id);
+            activeRoom = null;
+            await LoadRooms();
+        }
+    }
+
+    private async Task DismissGroup()
+    {
+        if (activeRoom == null || !activeRoom.IsGroup) return;
+        if (await JS.InvokeAsync<bool>("confirm", "确定要解散群聊吗？此操作不可逆。"))
+        {
+            await ChatService.DismissGroupAsync(activeRoom.Id);
+            activeRoom.IsArchived = true; // Local update
+            StateHasChanged();
+        }
+    }
+
+    private void ShowRenameModal()
+    {
+        if (activeRoom == null) return;
+        newGroupName = activeRoom.Name;
+        activeModal = ModalType.RenameGroup;
+    }
+
+    private async Task PerformRename()
+    {
+        if (activeRoom == null || string.IsNullOrWhiteSpace(newGroupName)) return;
+        await ChatService.RenameGroupAsync(activeRoom.Id, newGroupName);
+        activeRoom.Name = newGroupName;
+        CloseModal();
+    }
+    
+    private async Task DeleteFriend()
+    {
+        if (activeRoom == null || activeRoom.IsGroup) return;
+        // Find other user id
+        var other = activeRoom.Members.FirstOrDefault(m => m.UserId != currentUserId);
+        if (other == null) return;
+        
+        bool confirmed = await JS.InvokeAsync<bool>("confirm", "Are you sure?");
+        if (confirmed)
+        {
+             await ChatService.DeleteFriendAsync(other.UserId);
+             // Update UI state
+             isFriendDeleted = true;
+             StateHasChanged();
+        }
+    }
+    
+    private bool isFriendDeleted = false; // Reset on SelectRoom
+    
+    private void OnMemberClick(ChatMemberDto member)
+    {
+        if (member.UserId == currentUserId) return; // No action on self
+        selectedMember = member;
+        activeModal = ModalType.MemberAction;
+    }
+    
+    private async Task PerformMute()
+    {
+        if (selectedMember == null || activeRoom == null) return;
+        await ChatService.MuteMemberAsync(activeRoom.Id, selectedMember.UserId, muteMinutes);
+        CloseModal();
+        // Update local state? Maybe reload?
+        // Ideally update local object
+        // selectedMember.MuteUntil = ...
+    }
+    
+    private async Task PerformKick()
+    {
+         if (selectedMember == null || activeRoom == null) return;
+         await ChatService.KickMemberAsync(activeRoom.Id, selectedMember.UserId);
+         CloseModal();
+         activeRoom.Members.Remove(selectedMember);
+    }
+    
+    private async Task StartChatOrAddFriend()
+    {
+         if (selectedMember == null) return;
+         // Check if friend
+         // We can check if we have a 1-on-1 room with them
+         var existingRoom = chatRooms?.FirstOrDefault(r => !r.IsGroup && r.Members.Any(m => m.UserId == selectedMember.UserId));
+         if (existingRoom != null) 
+         {
+             CloseModal();
+             await SelectRoom(existingRoom);
+         }
+         else 
+         {
+             await SendFriendRequest(selectedMember.UserId);
+             CloseModal();
+         }
+    }
+
+    private ModalType activeModal = ModalType.None;
+    
+    // 申请/通知状态
+    private List<ChatRequestDto>? myRequests;
+    private int pendingRequestsCount = 0;
+
+    // 搜索状态
+    private string searchQuery = "";
+    private string searchType = "All";
+    private List<SearchResultDto>? searchResults;
+    private bool isSearching = false;
+
+    // 创建群组状态
+    private List<UserInfoDto>? myFriends;
+    private HashSet<string> selectedFriendIds = new();
+
+    private List<ChatRoomDto>? chatRooms;
+    private ChatRoomDto? activeRoom;
+    private string? activeRoomId;
+    private List<ChatMessageDto> messages = new();
+    private string newMessage = "";
+    private string? sharePlanId;
+    private bool showSharePlanPanel;
+    private List<TourPlanDto> myTourPlans = [];
+    private string currentUserId = "";
+    private bool showCreateModal = false;
+    private string targetUserSearch = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!OperatingSystem.IsBrowser()) return;
+
+        await AuthService.InitializeAsync();
+        if (!AuthService.IsAuthenticated)
+        {
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        currentUserId = AuthService.GetUserId()!;
+        
+        await ChatService.InitializeAsync();
+        ChatService.OnMessageReceived += HandleIncomingMessage;
+        
+        await LoadRooms();
+        await LoadRequests();
+        await LoadMyPlansAsync();
+    }
+
+    private async Task LoadMyPlansAsync()
+    {
+        try
+        {
+            myTourPlans = await TourPlanService.GetMyPlansAsync();
+            sharePlanId = myTourPlans.FirstOrDefault()?.Id;
+        }
+        catch
+        {
+            myTourPlans = [];
+            sharePlanId = null;
+        }
+    }
+
+    private async Task LoadRequests()
+    {
+        try {
+            myRequests = await ChatService.GetRequestsAsync();
+            pendingRequestsCount = myRequests.Count;
+        } catch 
+        {
+            myRequests = new();
+        }
+    }
+
+    private async Task SharePlanAsync()
+    {
+        if (activeRoomId == null || string.IsNullOrWhiteSpace(sharePlanId)) return;
+        var plan = myTourPlans.FirstOrDefault(x => x.Id == sharePlanId);
+        if (plan == null) return;
+
+        try
+        {
+            await ChatService.SendMessageAsync(new ChatMessageCreateDto
+            {
+                ChatRoomId = activeRoomId,
+                Type = ChatMessageType.Link,
+                Content = $"SHARE_PLAN|{plan.Id}|{Uri.EscapeDataString(plan.Title)}|{Uri.EscapeDataString(plan.StartAddress ?? string.Empty)}|{plan.Waypoints.Count}"
+            });
+            showSharePlanPanel = false;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Share plan failed: {ex.Message}");
+        }
+    }
+
+    private async Task OpenSharePlanPanelAsync()
+    {
+        await LoadMyPlansAsync();
+        if (myTourPlans.Count == 0) return;
+        sharePlanId = myTourPlans.FirstOrDefault()?.Id;
+        showSharePlanPanel = true;
+    }
+
+    private void CloseSharePlanPanel()
+    {
+        showSharePlanPanel = false;
+    }
+
+    private static bool TryParseSharedPlan(string? content, out SharedPlanPayload plan)
+    {
+        plan = new SharedPlanPayload();
+        if (string.IsNullOrWhiteSpace(content) || !content.StartsWith("SHARE_PLAN|")) return false;
+        var parts = content.Split('|', 5);
+        if (parts.Length < 3) return false;
+
+        var title = Uri.UnescapeDataString(parts[2]);
+        var start = parts.Length >= 4 ? Uri.UnescapeDataString(parts[3]) : string.Empty;
+        var waypointCount = 0;
+        if (parts.Length >= 5)
+        {
+            _ = int.TryParse(parts[4], out waypointCount);
+        }
+
+        plan = new SharedPlanPayload
+        {
+            Id = parts[1],
+            Title = title,
+            StartAddress = string.IsNullOrWhiteSpace(start) ? "未设置" : start,
+            WaypointCount = waypointCount
+        };
+
+        return true;
+    }
+
+    private static bool TryParseSharedResource(string? content, out SharedResourcePayload resource)
+    {
+        resource = new SharedResourcePayload();
+        if (string.IsNullOrWhiteSpace(content) || !content.StartsWith("SHARE_RESOURCE|")) return false;
+
+        var parts = content.Split('|', 6);
+        if (parts.Length < 4) return false;
+
+        double rating = 0;
+        if (parts.Length >= 6)
+        {
+            _ = double.TryParse(parts[5], out rating);
+        }
+
+        resource = new SharedResourcePayload
+        {
+            Type = parts[1],
+            Id = parts[2],
+            Name = Uri.UnescapeDataString(parts[3]),
+            CoverUrl = parts.Length >= 5 ? Uri.UnescapeDataString(parts[4]) : null,
+            Rating = rating
+        };
+
+        return true;
+    }
+
+    private static bool TryParseSharedPost(string? content, out SharedPostPayload post)
+    {
+        post = new SharedPostPayload();
+        if (string.IsNullOrWhiteSpace(content) || !content.StartsWith("SHARE_POST|")) return false;
+
+        var parts = content.Split('|', 4);
+        if (parts.Length < 3) return false;
+
+        post = new SharedPostPayload
+        {
+            Id = parts[1],
+            Title = Uri.UnescapeDataString(parts[2]),
+            CoverUrl = parts.Length >= 4 ? Uri.UnescapeDataString(parts[3]) : null
+        };
+
+        return true;
+    }
+
+    private sealed class SharedPlanPayload
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Title { get; set; } = string.Empty;
+        public string StartAddress { get; set; } = string.Empty;
+        public int WaypointCount { get; set; }
+    }
+
+    private sealed class SharedPostPayload
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Title { get; set; } = string.Empty;
+        public string? CoverUrl { get; set; }
+    }
+
+    private sealed class SharedResourcePayload
+    {
+        public string Type { get; set; } = string.Empty;
+        public string Id { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string? CoverUrl { get; set; }
+        public double Rating { get; set; }
+    }
+    
+    private void ShowRequestsModal()
+    {
+        activeModal = ModalType.Requests;
+        _ = LoadRequests();
+    }
+
+    private async Task HandleRequest(ChatRequestDto req, bool accept)
+    {
+        try
+        {
+            await ChatService.HandleRequestAsync(req.Id, accept);
+            await LoadRequests();
+            if (accept) await LoadRooms();
+        }
+        catch (Exception ex)
+        {
+             Console.WriteLine($"Handle request error: {ex.Message}");
+        }
+    }
+    
+    private async Task SendFriendRequest(string userId)
+    {
+        try
+        {
+            await ChatService.SendFriendRequestAsync(userId);
+            var item = searchResults?.FirstOrDefault(r => r.Id == userId);
+            if (item != null) item.RelationStatus = "Pending";
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message);
+        }
+    }
+
+    private async Task LoadRooms()
+    {
+        try 
+        {
+            chatRooms = await ChatService.GetMyRoomsAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading rooms: {ex.Message}");
+            chatRooms = new();
+        }
+    }
+
+    private async Task SelectRoom(ChatRoomDto room)
+    {
+        if (activeRoomId == room.Id) return;
+        
+        // Determine friend deleted state
+        // If 1-on-1 and I am not active => Friend Deleted
+        var me = room.Members.FirstOrDefault(m => m.UserId == currentUserId);
+        isFriendDeleted = !room.IsGroup && (me != null && !me.IsActive);
+
+        // Reset local UI states
+        showMemberSearch = false;
+        memberSearchQuery = "";
+
+        // 如果需要，离开上一个房间组（尽管后端可以处理多个）
+        // 加入新的 SignalR 组
+        await ChatService.LeaveRoomAsync(activeRoomId ?? ""); 
+        await ChatService.JoinRoomAsync(room.Id);
+
+        activeRoom = room;
+        activeRoomId = room.Id;
+        messages.Clear();
+        
+        try
+        {
+            messages = await ChatService.GetMessagesAsync(room.Id);
+            // 这里可以添加滚动到底部的逻辑
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading messages: {ex.Message}");
+        }
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(newMessage) || activeRoomId == null) return;
+
+        var contentToSend = newMessage;
+        newMessage = ""; // 乐观更新：先清空输入框
+
+        try
+        {
+            var msg = await ChatService.SendMessageAsync(new ChatMessageCreateDto
+            {
+                ChatRoomId = activeRoomId,
+                Content = contentToSend,
+                Type = ChatMessageType.Text
+            });
+            
+            // 本地追加消息（虽然 SignalR 也会收到推送，如果不处理可能会重复）
+            // 后端会向群组中的所有人发送 'ReceiveMessage'，包括发送者。
+            // 所以我们可以依赖 HandleIncomingMessage 或进行去重。
+            // 为简单起见，这里依赖 SignalR 回调。
+        }
+        catch (Exception ex)
+        {
+             // 发送失败，恢复消息内容
+             newMessage = contentToSend;
+             Console.WriteLine($"Send failed: {ex.Message}");
+        }
+    }
+
+    private void HandleIncomingMessage(ChatMessageDto msg)
+    {
+        if (msg.ChatRoomId == activeRoomId)
+        {
+            // 如果消息不在列表中（去重检查）
+            if (!messages.Any(m => m.Id == msg.Id))
+            {
+                messages.Add(msg);
+                InvokeAsync(StateHasChanged);
+                // 滚动到底部
+            }
+        }
+        
+        // 更新房间列表预览
+        var room = chatRooms?.FirstOrDefault(r => r.Id == msg.ChatRoomId);
+        if (room != null)
+        {
+            room.LastMessage = msg;
+            // 移到顶部
+            chatRooms?.Remove(room);
+            chatRooms?.Insert(0, room);
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void ShowSearchModal()
+    {
+        activeModal = ModalType.Search;
+        searchQuery = "";
+        searchResults = null;
+    }
+
+    private async Task ShowCreateGroupModal()
+    {
+        activeModal = ModalType.CreateGroup;
+        selectedFriendIds.Clear();
+        if (myFriends == null)
+        {
+            try
+            {
+                myFriends = await ChatService.GetFriendsAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading friends for group chat: {ex.Message}");
+                myFriends = new List<UserInfoDto>();
+            }
+        }
+    }
+
+    private void CloseModal()
+    {
+        activeModal = ModalType.None;
+    }
+
+    private async Task SetSearchType(string type)
+    {
+        searchType = type;
+        if (!string.IsNullOrWhiteSpace(searchQuery))
+        {
+            await SearchAsync();
+        }
+    }
+
+    private async Task SearchAsync()
+    {
+        if (string.IsNullOrWhiteSpace(searchQuery)) return;
+        isSearching = true;
+        try
+        {
+            searchResults = await ChatService.SearchAsync(searchQuery, searchType);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Search error: {ex.Message}");
+            searchResults = new();
+        }
+        finally
+        {
+            isSearching = false;
+        }
+    }
+
+    private async Task StartChatWithUser(string userId)
+    {
+        try
+        {
+            var roomId = await ChatService.Create1on1ChatAsync(userId);
+            CloseModal();
+            await LoadRooms();
+            var room = chatRooms?.FirstOrDefault(r => r.Id == roomId);
+            if (room != null) await SelectRoom(room);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message);
+        }
+    }
+
+    private async Task JoinGroup(string groupId)
+    {
+        try
+        {
+            await ChatService.JoinGroupAsync(groupId);
+            var item = searchResults?.FirstOrDefault(r => r.Id == groupId);
+            if (item != null) item.RelationStatus = "Pending";
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Join error: {ex.Message}");
+        }
+    }
+
+    private void ToggleFriendSelection(string userId, bool isSelected)
+    {
+        if (isSelected) selectedFriendIds.Add(userId);
+        else selectedFriendIds.Remove(userId);
+    }
+
+    private async Task CreateGroupChat()
+    {
+        if (selectedFriendIds.Count == 0) return;
+
+        try
+        {
+            // Generate name: Me (implied) + first 2 friends
+            var selectedFriends = myFriends!.Where(f => selectedFriendIds.Contains(f.Id)).ToList();
+            var names = new List<string> { "我" }; 
+            names.AddRange(selectedFriends.Take(2).Select(f => f.Nickname ?? f.UserName));
+            
+            string groupName = string.Join("、", names);
+            if (selectedFriends.Count > 2) groupName += "...";
+
+            // Add current user to list? Backend CreateRoom logic:
+            // "IsGroup=true ... room.Members.Add(Owner) ... foreach memberIds Add(Member)"
+            // So we just pass friend IDs.
+
+            var room = await ChatService.CreateGroupChatAsync(groupName, selectedFriendIds.ToList());
+            
+            CloseModal();
+            // 手动将新房间插入到列表而不全量刷新，这样可以利用后端返回的完整数据
+            if (room != null) 
+            {
+               chatRooms ??= new List<ChatRoomDto>();
+               chatRooms.Insert(0, room);
+               await SelectRoom(room);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Create group error: {ex.Message}");
+        }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+             await SendMessage();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (activeRoomId != null)
+        {
+            await ChatService.LeaveRoomAsync(activeRoomId);
+        }
+        ChatService.OnMessageReceived -= HandleIncomingMessage;
+        await ChatService.DisposeAsync();
+    }
+
+    private static string GetPublicProfileUrl(string? userNo)
+    {
+        return string.IsNullOrWhiteSpace(userNo) ? "#" : $"/u/{userNo}";
+    }
+}

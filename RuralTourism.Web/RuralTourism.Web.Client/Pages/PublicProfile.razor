@@ -1,0 +1,322 @@
+@page "/u/{userNo}"
+@rendermode InteractiveWebAssembly
+@using RuralTourism.Web.Client.Models
+@using RuralTourism.Web.Client.Services
+@inject UserService UserService
+@inject AuthService AuthService
+@inject NavigationManager Navigation
+@inject HttpClient Http
+
+<div class="container mt-3 mb-5">
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary"></div>
+        </div>
+    }
+    else if (profile == null)
+    {
+        <div class="alert alert-warning">未找到该用户主页。</div>
+    }
+    else
+    {
+        <div class="card border-0 shadow-sm mb-3 overflow-hidden">
+            <div class="public-cover"></div>
+            <div class="card-body pt-0">
+                <div class="d-flex justify-content-between align-items-end flex-wrap gap-2">
+                    <div class="d-flex align-items-center gap-3" style="margin-top:-34px;">
+                        <img src="@Avatar(profile.AvatarUrl)" class="rounded-circle border border-3 border-white" style="width:88px;height:88px;object-fit:cover;" />
+                        <div>
+                            <h4 class="mb-1">@profile.DisplayName</h4>
+                            <div class="text-muted small">等级：@(!string.IsNullOrWhiteSpace(profile.HomeCity) ? profile.HomeCity : "旅行者")</div>
+                            @if (profile.IsBanned)
+                            {
+                                <span class="badge bg-danger mt-2">@(profile.IsPermanentBan ? "永久封禁" : "封禁中")</span>
+                                @if (!profile.IsPermanentBan && profile.BannedUntil.HasValue)
+                                {
+                                    <div class="small text-danger mt-1">封禁至 @profile.BannedUntil.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</div>
+                                }
+                            }
+                        </div>
+                    </div>
+                    <div class="d-flex gap-2">
+                        @if (!profile.IsSelf)
+                        {
+                            <button class="btn btn-sm @(profile.IsFollowing ? "btn-outline-success" : "btn-success")" @onclick="ToggleFollowAsync" disabled="@isFollowingBusy">
+                                @(profile.IsFollowing ? "已关注" : "+ 关注")
+                            </button>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-3">
+            <div class="col-lg-8">
+                <div class="card border-0 shadow-sm mb-3">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h6 class="mb-0">TA的帖子</h6>
+                            <span class="text-muted small">@profile.PublishedPostCount 条</span>
+                        </div>
+                        @if (posts.Count == 0)
+                        {
+                            <div class="text-muted">暂未发布内容。</div>
+                        }
+                        else
+                        {
+                            <div class="row g-3">
+                                @foreach (var p in posts.Take(postVisibleCount))
+                                {
+                                    <div class="col-md-4">
+                                        <div class="card h-100 border" role="button" @onclick="() => OpenPost(p.Id)">
+                                            <img src="@PostCover(p.CoverMediaId)" class="card-img-top" style="height:150px;object-fit:cover;" />
+                                            <div class="card-body p-2">
+                                                <div class="small text-truncate">@(string.IsNullOrWhiteSpace(p.Title) ? "未命名内容" : p.Title)</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+
+                            @if (posts.Count > postVisibleCount)
+                            {
+                                <div class="text-center mt-3">
+                                    <button class="btn btn-outline-secondary btn-sm" @onclick="LoadMorePosts">更多</button>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body">
+                        <h6 class="mb-2">留言板</h6>
+                        <div id="wall-box" class="mb-3">
+                            @if (isAuthenticated && !profile.IsSelf)
+                            {
+                                <div class="d-flex gap-2">
+                                    <textarea class="form-control" rows="2" placeholder="我来过，我想说..." @bind="newWallMessage"></textarea>
+                                    <button class="btn btn-success" @onclick="SubmitWallMessageAsync" disabled="@isPostingWall">留言</button>
+                                </div>
+                            }
+                            else if (!isAuthenticated)
+                            {
+                                <div class="small text-muted">登录后可留言。</div>
+                            }
+                        </div>
+
+                        @if (wallMessages.Count == 0)
+                        {
+                            <div class="text-muted small">暂无留言。</div>
+                        }
+                        else
+                        {
+                            @foreach (var m in wallMessages)
+                            {
+                                <div class="border-bottom py-2">
+                                    <div class="d-flex gap-2 align-items-start">
+                                        <a href="/u/@m.SenderUserNo"><img src="@Avatar(m.SenderAvatarUrl)" class="rounded-circle border" style="width:32px;height:32px;object-fit:cover;" /></a>
+                                        <div>
+                                            <div class="small"><a href="/u/@m.SenderUserNo" class="text-decoration-none fw-semibold">@m.SenderDisplayName</a> <span class="text-muted ms-1">@m.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</span></div>
+                                            <div class="small text-muted">@m.Content</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="card border-0 shadow-sm mb-3">
+                    <div class="card-body">
+                        <div class="small text-muted mb-2">统计</div>
+                        <div class="d-flex justify-content-between mb-1"><span>TA的关注</span><strong>@profile.FollowingCount</strong></div>
+                        <div class="d-flex justify-content-between mb-1"><span>TA的粉丝</span><strong>@profile.FollowersCount</strong></div>
+                        <div class="d-flex justify-content-between"><span>已发布</span><strong>@profile.PublishedPostCount</strong></div>
+                    </div>
+                </div>
+
+                <div class="card border-0 shadow-sm mb-3">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div class="small text-muted">TA的关注</div>
+                            @if (followingList.Count > 0)
+                            {
+                                <button type="button" class="btn btn-link btn-sm p-0" @onclick="ToggleFollowingExpanded">@(followingExpanded ? "收起" : "更多")</button>
+                            }
+                        </div>
+                        <div class="d-flex flex-wrap gap-2">
+                            @foreach (var u in FollowingToShow)
+                            {
+                                <a href="/u/@u.UserNo"><img src="@Avatar(u.AvatarUrl)" title="@u.DisplayName" class="rounded-circle border" style="width:30px;height:30px;object-fit:cover;" /></a>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card border-0 shadow-sm">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div class="small text-muted">TA的粉丝</div>
+                            @if (followersList.Count > 0)
+                            {
+                                <button type="button" class="btn btn-link btn-sm p-0" @onclick="ToggleFollowersExpanded">@(followersExpanded ? "收起" : "更多")</button>
+                            }
+                        </div>
+                        <div class="d-flex flex-wrap gap-2">
+                            @foreach (var u in FollowersToShow)
+                            {
+                                <a href="/u/@u.UserNo"><img src="@Avatar(u.AvatarUrl)" title="@u.DisplayName" class="rounded-circle border" style="width:30px;height:30px;object-fit:cover;" /></a>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .public-cover {
+        height: 120px;
+        background: linear-gradient(120deg, #9ec5fe, #e2eafc);
+    }
+</style>
+
+@code {
+    [Parameter] public string userNo { get; set; } = null!;
+
+    private bool isLoading = true;
+    private bool isAuthenticated;
+    private bool isFollowingBusy;
+    private bool isPostingWall;
+    private int postVisibleCount = 6;
+    private bool followingExpanded;
+    private bool followersExpanded;
+    private bool followingLoadedAll;
+    private bool followersLoadedAll;
+    private PublicUserProfileDto? profile;
+    private List<PostSummaryDto> posts = [];
+    private List<UserWallMessageDto> wallMessages = [];
+    private List<UserSimpleDto> followingList = [];
+    private List<UserSimpleDto> followersList = [];
+    private string newWallMessage = string.Empty;
+
+    private IEnumerable<UserSimpleDto> FollowingToShow => followingExpanded ? followingList : followingList.Take(10);
+    private IEnumerable<UserSimpleDto> FollowersToShow => followersExpanded ? followersList : followersList.Take(10);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        isLoading = true;
+
+        if (OperatingSystem.IsBrowser())
+        {
+            await AuthService.InitializeAsync();
+            isAuthenticated = AuthService.IsAuthenticated;
+        }
+        else
+        {
+            isAuthenticated = false;
+        }
+
+        profile = await UserService.GetPublicProfileAsync(userNo);
+        if (profile != null)
+        {
+            posts = await UserService.GetPublicPostsAsync(userNo);
+            wallMessages = await UserService.GetPublicWallMessagesAsync(userNo);
+            followingList = profile.FollowingPreview ?? [];
+            followersList = profile.FollowersPreview ?? [];
+            followingExpanded = false;
+            followersExpanded = false;
+            followingLoadedAll = false;
+            followersLoadedAll = false;
+        }
+        else
+        {
+            posts = [];
+            wallMessages = [];
+            followingList = [];
+            followersList = [];
+        }
+        isLoading = false;
+    }
+
+    private async Task ToggleFollowAsync()
+    {
+        if (profile == null || profile.IsSelf) return;
+        isFollowingBusy = true;
+        var result = await UserService.ToggleFollowAsync(userNo);
+        if (result.HasValue)
+        {
+            profile.IsFollowing = result.Value;
+            profile.FollowersCount += result.Value ? 1 : -1;
+            if (profile.FollowersCount < 0) profile.FollowersCount = 0;
+            profile = await UserService.GetPublicProfileAsync(userNo);
+            if (profile != null)
+            {
+                followingList = profile.FollowingPreview ?? [];
+                followersList = profile.FollowersPreview ?? [];
+                followingLoadedAll = false;
+                followersLoadedAll = false;
+            }
+        }
+        isFollowingBusy = false;
+    }
+
+    private async Task ToggleFollowingExpanded()
+    {
+        followingExpanded = !followingExpanded;
+        if (followingExpanded && !followingLoadedAll)
+        {
+            followingList = await UserService.GetPublicFollowingAsync(userNo);
+            followingLoadedAll = true;
+        }
+    }
+
+    private async Task ToggleFollowersExpanded()
+    {
+        followersExpanded = !followersExpanded;
+        if (followersExpanded && !followersLoadedAll)
+        {
+            followersList = await UserService.GetPublicFollowersAsync(userNo);
+            followersLoadedAll = true;
+        }
+    }
+
+    private async Task SubmitWallMessageAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newWallMessage) || profile == null) return;
+        isPostingWall = true;
+        var created = await UserService.CreatePublicWallMessageAsync(userNo, newWallMessage);
+        if (created != null)
+        {
+            wallMessages.Insert(0, created);
+            newWallMessage = string.Empty;
+        }
+        isPostingWall = false;
+    }
+
+    private void LoadMorePosts()
+    {
+        postVisibleCount += 6;
+    }
+
+    private void OpenPost(string postId)
+    {
+        Navigation.NavigateTo($"/posts/{postId}");
+    }
+
+    private static string Avatar(string? url) => string.IsNullOrWhiteSpace(url) ? UserConstants.DefaultAvatarUrl : url;
+
+    private string PostCover(string? cover)
+    {
+        if (string.IsNullOrWhiteSpace(cover)) return "https://dummyimage.com/600x400/dee2e6/6c757d.jpg&text=No+Image";
+        if (cover.StartsWith("http")) return cover;
+        var apiBase = Http.BaseAddress?.ToString().TrimEnd('/') ?? string.Empty;
+        if (cover.StartsWith('/')) return $"{apiBase}{cover}";
+        return $"{apiBase}/api/media/{cover}";
+    }
+}

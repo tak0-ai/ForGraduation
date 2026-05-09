@@ -1,0 +1,59 @@
+﻿@using RuralTourism.Web.Client.Services
+@inject AuthService AuthService
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="stylesheet" href="@Assets["RuralTourism.Web.styles.css"]" />
+    <ImportMap />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <HeadOutlet />
+    <script type="text/javascript" src="https://api.map.baidu.com/api?type=webgl&v=1.0&ak=zpZUCC8PVp2WwzaVymGU7xz9YMdWVUJi"></script>
+    <script src="js/baiduMap.js"></script>
+</head>
+
+<body>
+    <Routes />
+    <script src="@Assets["lib/bootstrap/dist/js/bootstrap.bundle.min.js"]"></script>
+    <script src="_framework/blazor.web.js"></script>
+    <script>
+        window.initStickyCommentObserver = (targetId, dotNetHelper) => {
+            const target = document.getElementById(targetId);
+            if (!target) return;
+
+            const observer = new IntersectionObserver((entries) => {
+                // If main comment box is intersecting (visible), hide sticky (isVisible = false)
+                // If not intersecting (not visible), show sticky (isVisible = true)
+                const isVisible = entries[0].isIntersecting;
+                dotNetHelper.invokeMethodAsync('OnCommentSectionVisibilityChanged', isVisible);
+            }, { threshold: 0.1 }); // Trigger when 10% valid
+
+            observer.observe(target);
+        };
+    </script>
+</body>
+
+@code {
+    private bool _initialized;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_initialized) return;
+
+        // In WebAssembly (browser) JS interop is available on first render.
+        // When Server prerendering, wait until the second render (firstRender == false)
+        if (OperatingSystem.IsBrowser() || !firstRender)
+        {
+            await AuthService.InitializeAsync();
+            _initialized = true;
+            StateHasChanged();
+        }
+    }
+}
+</html>

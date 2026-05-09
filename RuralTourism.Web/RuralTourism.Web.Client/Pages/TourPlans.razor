@@ -1,0 +1,471 @@
+@page "/tour-plans"
+@rendermode InteractiveWebAssembly
+@using RuralTourism.Web.Client.Models
+@using RuralTourism.Web.Client.Services
+@inject TourPlanService TourPlanService
+@inject ChatService ChatService
+@inject AuthService AuthService
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<div class="container-fluid tour-plans-page py-3 px-3 px-lg-4">
+    <div class="row g-3 h-100">
+        <div class="col-lg-3 d-flex flex-column h-100">
+            <div class="card shadow-sm border-0">
+                <div class="card-body d-grid gap-2">
+                    <button class="btn btn-success" @onclick="OpenCreate">创建新的行程</button>
+                    <button class="btn btn-outline-primary" @onclick="OpenManage">管理我的行程</button>
+                    @if (!string.IsNullOrWhiteSpace(message))
+                    {
+                        <div class="small text-muted mt-2">@message</div>
+                    }
+                </div>
+            </div>
+
+            @if (showCreatePanel)
+            {
+                <div class="card shadow-sm border-0 mt-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">@(string.IsNullOrWhiteSpace(editingPlanId) ? "创建行程" : "编辑行程")</h6>
+                        <button class="btn-close" @onclick="CloseCreate"></button>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-2">
+                            <div class="col-12">
+                                <label class="form-label">行程名称</label>
+                                <InputText class="form-control" @bind-Value="form.Title" />
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">路线模式</label>
+                                <input class="form-control" value="驾车路线" disabled />
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">起始地</label>
+                                <InputText class="form-control" @bind-Value="form.StartAddress" placeholder="例如：镇江站" />
+                            </div>
+                            <div class="col-12">
+                                <div class="form-check mb-1">
+                                    <InputCheckbox class="form-check-input" @bind-Value="form.ReturnToStart" id="returnStart" />
+                                    <label class="form-check-label" for="returnStart">返回起始地</label>
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">经过地（可多个）</label>
+                                @for (var i = 0; i < form.Waypoints.Count; i++)
+                                {
+                                    var idx = i;
+                                    <div class="input-group mb-1">
+                                        <InputText class="form-control" @bind-Value="form.Waypoints[idx]" placeholder="经过地" />
+                                        <button type="button" class="btn btn-outline-secondary" @onclick="() => MoveWaypointUp(idx)" disabled="@(idx == 0)">上移</button>
+                                        <button type="button" class="btn btn-outline-secondary" @onclick="() => MoveWaypointDown(idx)" disabled="@(idx == form.Waypoints.Count - 1)">下移</button>
+                                        <button type="button" class="btn btn-outline-danger" @onclick="() => RemoveWaypoint(idx)">删除</button>
+                                    </div>
+                                }
+                                <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="AddWaypoint">添加经过地</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-footer d-flex justify-content-end gap-2">
+                        <button class="btn btn-outline-primary btn-sm" @onclick="PreviewRouteAsync">预览路线</button>
+                        <button class="btn btn-primary btn-sm" @onclick="SavePlanAsync">保存</button>
+                    </div>
+                </div>
+            }
+
+            @if (showManagePanel)
+            {
+                <div class="card shadow-sm border-0 mt-3 flex-grow-1">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">管理我的行程</h6>
+                        <button class="btn-close" @onclick="CloseManage"></button>
+                    </div>
+                    <div class="card-body overflow-auto">
+                        @if (myPlans.Count == 0)
+                        {
+                            <div class="text-muted">暂无行程。</div>
+                        }
+                        else
+                        {
+                            @foreach (var p in myPlans)
+                            {
+                                <div class="border rounded p-2 mb-2 d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <div class="fw-semibold">@p.Title</div>
+                                        <div class="small text-muted">@p.StartAddress · 驾车</div>
+                                    </div>
+                                    <div class="d-flex gap-2">
+                                        <button class="btn btn-outline-primary btn-sm" @onclick="() => EditPlan(p)">更改</button>
+                                        <button class="btn btn-outline-success btn-sm" @onclick="() => OpenSharePlanPanelAsync(p)">分享</button>
+                                        <button class="btn btn-outline-danger btn-sm" @onclick="() => DeletePlanAsync(p.Id)">删除</button>
+                                    </div>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+        <div class="col-lg-9 d-flex flex-column">
+            <div class="card shadow-sm border-0 flex-grow-1">
+                <div class="card-body d-flex flex-column">
+                    <div id="tourPlanMap" class="rounded border w-100 tour-map"></div>
+                    <div id="tourPlanPanel" class="small mt-2" style="max-height:180px;overflow:auto;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .tour-plans-page {
+        min-height: calc(100vh - 90px);
+    }
+
+    .tour-map {
+        height: calc(100vh - 180px);
+        min-height: 520px;
+    }
+
+    @@media (max-width: 991.98px) {
+        .tour-map {
+            height: 60vh;
+            min-height: 420px;
+        }
+    }
+</style>
+
+@if (showSharePlanPanel)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">选择聊天分享行程</h5>
+                    <button type="button" class="btn-close" @onclick="CloseSharePlanPanel"></button>
+                </div>
+                <div class="modal-body">
+                    @if (isLoadingShareRooms)
+                    {
+                        <div class="text-center py-2"><span class="spinner-border spinner-border-sm"></span></div>
+                    }
+                    else if (chatRoomsForShare.Count == 0)
+                    {
+                        <div class="text-muted">暂无可分享的聊天会话。</div>
+                    }
+                    else
+                    {
+                        <div class="list-group">
+                            @foreach (var room in chatRoomsForShare)
+                            {
+                                var isSelected = selectedShareRoomId == room.Id;
+                                <button type="button"
+                                        class="list-group-item list-group-item-action d-flex align-items-center gap-2 @(isSelected ? "active" : "")"
+                                        @onclick="() => SelectShareRoom(room.Id)">
+                                    <img src="@room.GetCoverUrl()" class="rounded-circle border" style="width:34px;height:34px;object-fit:cover;" />
+                                    <div class="flex-grow-1 text-start">
+                                        <div class="fw-semibold">@room.Name</div>
+                                        <div class="small @(isSelected ? "text-white-50" : "text-muted")">@GetShareRoomSubText(room)</div>
+                                    </div>
+                                </button>
+                            }
+                        </div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(sharePlanMessage))
+                    {
+                        <div class="small text-muted mt-2">@sharePlanMessage</div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary" @onclick="CloseSharePlanPanel">取消</button>
+                    <button class="btn btn-success" @onclick="SharePlanToChatAsync" disabled="@(isSharingPlan || chatRoomsForShare.Count == 0 || string.IsNullOrWhiteSpace(selectedShareRoomId) || pendingSharePlan == null)">
+                        @if (isSharingPlan)
+                        {
+                            <span class="spinner-border spinner-border-sm me-1"></span>
+                        }
+                        确认分享
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "planId")]
+    public string? PlanId { get; set; }
+
+    private bool showCreatePanel;
+    private bool showManagePanel;
+    private bool showSharePlanPanel;
+    private bool isLoadingShareRooms;
+    private bool isSharingPlan;
+    private string? editingPlanId;
+    private string? message;
+    private bool mapInitialized;
+    private string? currentUserId;
+
+    private List<TourPlanDto> myPlans = [];
+    private List<ChatRoomDto> chatRoomsForShare = [];
+    private TourPlanDto? pendingSharePlan;
+    private string? selectedShareRoomId;
+    private string? sharePlanMessage;
+    private TourPlanUpsertDto form = new() { RouteMode = "driving" };
+    private string? lastHandledPlanId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!OperatingSystem.IsBrowser()) return;
+        await AuthService.InitializeAsync();
+        if (!AuthService.IsAuthenticated)
+        {
+            Navigation.NavigateTo("/login?returnUrl=/tour-plans");
+            return;
+        }
+
+        currentUserId = AuthService.GetUserId();
+
+        await LoadMyPlansAsync();
+        await TryOpenPlanFromQueryAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await TryOpenPlanFromQueryAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender || !mapInitialized)
+        {
+            await JS.InvokeVoidAsync("initBaiduCityMap", "tourPlanMap", "镇江");
+            mapInitialized = true;
+        }
+    }
+
+    private async Task LoadMyPlansAsync()
+    {
+        myPlans = await TourPlanService.GetMyPlansAsync();
+    }
+
+    private async Task TryOpenPlanFromQueryAsync()
+    {
+        if (string.IsNullOrWhiteSpace(PlanId) || PlanId == lastHandledPlanId) return;
+
+        var target = myPlans.FirstOrDefault(x => x.Id == PlanId);
+        if (target != null)
+        {
+            lastHandledPlanId = PlanId;
+            EditPlan(target);
+            return;
+        }
+
+        var sharedPlan = await TourPlanService.GetByIdAsync(PlanId);
+        if (sharedPlan == null) return;
+
+        lastHandledPlanId = PlanId;
+        editingPlanId = null;
+        form = new TourPlanUpsertDto
+        {
+            Title = sharedPlan.Title,
+            StartAddress = sharedPlan.StartAddress,
+            Waypoints = sharedPlan.Waypoints.ToList(),
+            RouteMode = "driving",
+            ReturnToStart = sharedPlan.ReturnToStart
+        };
+        showManagePanel = false;
+        showCreatePanel = true;
+        message = "已打开分享行程，可直接另存为我的行程";
+        await PreviewRouteAsync();
+    }
+
+    private void OpenCreate()
+    {
+        editingPlanId = null;
+        form = new TourPlanUpsertDto { RouteMode = "driving" };
+        showCreatePanel = true;
+        showManagePanel = false;
+    }
+
+    private void OpenManage()
+    {
+        showManagePanel = true;
+        showCreatePanel = false;
+    }
+    private void CloseCreate() => showCreatePanel = false;
+    private void CloseManage() => showManagePanel = false;
+
+    private void AddWaypoint() => form.Waypoints.Add(string.Empty);
+
+    private void RemoveWaypoint(int idx)
+    {
+        if (idx >= 0 && idx < form.Waypoints.Count) form.Waypoints.RemoveAt(idx);
+    }
+
+    private void MoveWaypointUp(int idx)
+    {
+        if (idx <= 0 || idx >= form.Waypoints.Count) return;
+        (form.Waypoints[idx - 1], form.Waypoints[idx]) = (form.Waypoints[idx], form.Waypoints[idx - 1]);
+    }
+
+    private void MoveWaypointDown(int idx)
+    {
+        if (idx < 0 || idx >= form.Waypoints.Count - 1) return;
+        (form.Waypoints[idx], form.Waypoints[idx + 1]) = (form.Waypoints[idx + 1], form.Waypoints[idx]);
+    }
+
+    private async Task PreviewRouteAsync()
+    {
+        var points = new List<object>();
+        var allAddresses = new List<string>();
+        if (!string.IsNullOrWhiteSpace(form.StartAddress)) allAddresses.Add(form.StartAddress.Trim());
+        allAddresses.AddRange(form.Waypoints.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()));
+        if (form.ReturnToStart && !string.IsNullOrWhiteSpace(form.StartAddress)) allAddresses.Add(form.StartAddress.Trim());
+
+        foreach (var addr in allAddresses)
+        {
+            var point = await JS.InvokeAsync<GeoPoint?>("getBaiduLocation", addr, "镇江");
+            if (point != null) points.Add(new { lat = point.lat, lng = point.lng });
+        }
+
+        var json = System.Text.Json.JsonSerializer.Serialize(points);
+        await JS.InvokeVoidAsync("planBaiduRouteAdvanced", "tourPlanMap", "tourPlanPanel", json, "driving");
+    }
+
+    private async Task SavePlanAsync()
+    {
+        if (string.IsNullOrWhiteSpace(form.Title) || string.IsNullOrWhiteSpace(form.StartAddress))
+        {
+            message = "请填写行程名称和起始地";
+            return;
+        }
+
+        TourPlanDto? saved;
+        if (string.IsNullOrWhiteSpace(editingPlanId))
+        {
+            saved = await TourPlanService.CreateAsync(form);
+        }
+        else
+        {
+            saved = await TourPlanService.UpdateAsync(editingPlanId, form);
+        }
+
+        if (saved != null)
+        {
+            message = "行程保存成功";
+            showCreatePanel = false;
+            await LoadMyPlansAsync();
+        }
+        else
+        {
+            message = "行程保存失败";
+        }
+    }
+
+    private void EditPlan(TourPlanDto p)
+    {
+        editingPlanId = p.Id;
+        form = new TourPlanUpsertDto
+        {
+            Title = p.Title,
+            StartAddress = p.StartAddress,
+            Waypoints = p.Waypoints.ToList(),
+            RouteMode = "driving",
+            ReturnToStart = p.ReturnToStart
+        };
+        showManagePanel = false;
+        showCreatePanel = true;
+    }
+
+    private async Task DeletePlanAsync(string id)
+    {
+        await TourPlanService.DeleteAsync(id);
+        await LoadMyPlansAsync();
+    }
+
+    private async Task OpenSharePlanPanelAsync(TourPlanDto plan)
+    {
+        pendingSharePlan = plan;
+        showSharePlanPanel = true;
+        isLoadingShareRooms = true;
+        sharePlanMessage = null;
+
+        try
+        {
+            var rooms = await ChatService.GetMyRoomsAsync();
+            chatRoomsForShare = rooms
+                .Where(r => !r.IsArchived)
+                .Where(r => r.IsGroup || r.Members.Any(m => m.UserId == currentUserId && m.IsActive))
+                .ToList();
+            selectedShareRoomId = chatRoomsForShare.FirstOrDefault()?.Id;
+        }
+        catch (Exception ex)
+        {
+            chatRoomsForShare = [];
+            selectedShareRoomId = null;
+            sharePlanMessage = $"加载聊天会话失败: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingShareRooms = false;
+        }
+    }
+
+    private void CloseSharePlanPanel()
+    {
+        showSharePlanPanel = false;
+        isLoadingShareRooms = false;
+        isSharingPlan = false;
+        sharePlanMessage = null;
+    }
+
+    private void SelectShareRoom(string roomId)
+    {
+        selectedShareRoomId = roomId;
+    }
+
+    private async Task SharePlanToChatAsync()
+    {
+        if (pendingSharePlan == null || string.IsNullOrWhiteSpace(selectedShareRoomId)) return;
+
+        isSharingPlan = true;
+        sharePlanMessage = null;
+
+        try
+        {
+            await ChatService.SendMessageAsync(new ChatMessageCreateDto
+            {
+                ChatRoomId = selectedShareRoomId,
+                Type = ChatMessageType.Link,
+                Content = $"SHARE_PLAN|{pendingSharePlan.Id}|{Uri.EscapeDataString(pendingSharePlan.Title)}|{Uri.EscapeDataString(pendingSharePlan.StartAddress ?? string.Empty)}|{pendingSharePlan.Waypoints.Count}"
+            });
+
+            sharePlanMessage = "已分享行程。";
+            showSharePlanPanel = false;
+        }
+        catch (Exception ex)
+        {
+            sharePlanMessage = $"分享失败: {ex.Message}";
+        }
+        finally
+        {
+            isSharingPlan = false;
+        }
+    }
+
+    private string GetShareRoomSubText(ChatRoomDto room)
+    {
+        if (room.IsGroup)
+        {
+            return $"群聊 · 群号 {room.RoomNo}";
+        }
+
+        var other = room.Members.FirstOrDefault(m => m.UserId != currentUserId);
+        return $"好友ID: {(other?.UserNo ?? "未知")}";
+    }
+
+    private sealed class GeoPoint
+    {
+        public double lat { get; set; }
+        public double lng { get; set; }
+    }
+}

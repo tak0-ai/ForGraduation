@@ -1,0 +1,269 @@
+.article-container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding-bottom: 5rem;
+}
+
+.article-header {
+    margin-bottom: 3rem;
+    text-align: center;
+}
+
+.article-title {
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: #212529;
+    margin-bottom: 1rem;
+    line-height: 1.3;
+}
+
+.article-meta {
+    font-size: 0.95rem;
+    color: #6c757d;
+}
+
+.article-cover {
+    width: 100%;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    margin-bottom: 3rem;
+    object-fit: cover;
+    max-height: 500px;
+}
+
+.post-blocks {
+    font-size: 1.15rem;
+    line-height: 1.8;
+    color: #333;
+}
+
+.post-block {
+    margin-bottom: 2rem;
+}
+
+.post-block h3 {
+    font-weight: 700;
+    margin-top: 2.5rem;
+    margin-bottom: 1.25rem;
+}
+
+.post-block img {
+    border-radius: 8px;
+    margin: 1rem 0;
+}
+
+.post-block-caption {
+    text-align: center;
+    margin-top: -0.5rem;
+    font-size: 0.9rem;
+    font-style: italic;
+}
+
+.back-link {
+    display: inline-flex;
+    align-items: center;
+    color: #6c757d;
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.2s;
+    margin-top: 1rem;
+}
+
+.back-link:hover {
+    color: #0d6efd;
+}
+
+.back-link i {
+    margin-right: 0.5rem;
+}
+
+/* Animations */
+.animate-fade-in {
+    animation: fadeIn 0.6s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.article-list {
+    padding-left: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.article-list li {
+    margin-bottom: 0.5rem;
+}
+
+.article-text-content {
+    word-wrap: break-word;
+    white-space: pre-wrap;
+}
+
+/* 评论区新样式 */
+.comment-card-wrapper {
+    margin-bottom: 1rem;
+}
+
+/* 独立的评论内容卡片，包含头像、文本、底部操作栏 */
+.comment-body {
+    transition: background-color 0.2s;
+    border-radius: 8px;
+    padding: 1rem;
+    position: relative; /* 关键：作为更多按钮的定位基准 */
+}
+
+.comment-body:hover {
+    background-color: #f8f9fa;
+}
+
+/* 针对楼中楼的样式覆盖 */
+.reply-card .comment-body {
+    background-color: transparent;
+    border: none;
+}
+
+.reply-card .comment-body:hover {
+    background-color: #f8f9fa;
+}
+
+.comment-upper {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.comment-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+.comment-user-info {
+    flex-grow: 1;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding-right: 48px; /* 为右上角更多按钮预留空间 */
+}
+
+.comment-username {
+    font-weight: 600;
+    color: #212529;
+    font-size: 0.95rem;
+}
+
+.comment-text {
+    font-size: 0.95rem;
+    color: #333;
+    line-height: 1.5;
+    word-break: break-all;
+}
+
+.comment-lower {
+    display: flex;
+    align-items: center;
+    margin-top: 8px;
+    margin-left: 52px; /* 头像40px + 间距12px */
+}
+
+.comment-actions-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    color: #6c757d;
+    font-size: 0.85rem;
+}
+
+.action-item {
+    cursor: pointer;
+    transition: color 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: none;
+    border: none;
+    padding: 0;
+    color: inherit;
+    font-size: inherit;
+}
+
+.action-item:hover {
+    color: #0d6efd;
+}
+
+.action-item.text-danger:hover {
+    color: #dc3545 !important;
+}
+
+/* 更多操作按钮样式 */
+.dropdown.more-action-btn {
+    display: block !important;
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 1055;
+    opacity: 0;       /* 默认不可见 */
+    visibility: hidden;
+    transition: opacity 0.2s ease-in-out, visibility 0.2s ease-in-out;
+}
+
+/* 仅在鼠标悬停在具体的 .comment-body 上时显示其内部的按钮 */
+.comment-body:hover > .dropdown.more-action-btn,
+.dropdown.more-action-btn:hover,
+.dropdown.more-action-btn:focus-within {
+    opacity: 1;
+    visibility: visible;
+}
+
+.dropdown.more-action-btn .btn {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 6px;
+    color: #adb5bd !important;
+}
+
+.dropdown.more-action-btn .btn i {
+    color: inherit;
+}
+
+.dropdown.more-action-btn .btn:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+.reply-nested-container {
+    margin-left: 52px;
+    margin-top: 0.5rem;
+}
+
+.reply-card {
+    margin-bottom: 0.25rem;
+}
+
+/* 固定底部的评论输入框 */
+.sticky-comment-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background-color: #fff;
+    border-top: 1px solid #dee2e6;
+    padding: 1rem 0;
+    box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+    z-index: 1040;
+    transform: translateY(100%);
+    transition: transform 0.3s ease-in-out;
+}
+
+.sticky-comment-bar.visible {
+    transform: translateY(0);
+}
+

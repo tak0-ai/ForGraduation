@@ -1,0 +1,179 @@
+@page "/notifications"
+@rendermode InteractiveWebAssembly
+@using RuralTourism.Web.Client.Models
+@using RuralTourism.Web.Client.Services
+@inject NotificationService NotificationService
+@inject NavigationManager Navigation
+@inject AuthService AuthService
+
+
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3>消息通知</h3>
+        <button class="btn btn-outline-secondary btn-sm" @onclick="MarkAllRead">全部已读</button>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+        </div>
+    }
+    else if (notifications == null || notifications.Count == 0)
+    {
+        <div class="alert alert-info text-center">暂无消息通知</div>
+    }
+    else
+    {
+        <div class="list-group">
+            @foreach (var n in notifications)
+            {
+                <div class="notification-item @(!n.IsRead ? "unread" : "")" @onclick="() => OnNotificationClick(n)">
+                    <div class="avatar-wrapper">
+                        <img src="@(n.TriggerUserAvatarUrl ?? "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png")"
+                             class="avatar"
+                             alt="Avatar"
+                             style="cursor:pointer"
+                             @onclick:stopPropagation="true"
+                             @onclick="() => NavigateToPublicProfile(n.TriggerUserNo)"
+                             onerror="this.src='https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png'" />
+                        <span class="icon-overlay @GetIconClass(n.Title)">
+                            <i class="bi @GetIcon(n.Title)"></i>
+                        </span>
+                    </div>
+                    <div class="content">
+                        <div class="header">
+                            <span class="username"
+                                  style="cursor:pointer"
+                                  @onclick:stopPropagation="true"
+                                  @onclick="() => NavigateToPublicProfile(n.TriggerUserNo)">@(n.TriggerUserName ?? "系统通知")</span>
+                        </div>
+                        <div class="body-text">
+                            @n.Body
+                        </div>
+                        <span class="date">@n.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</span>
+                    </div>
+                     @if (!n.IsRead)
+                    {
+                         <div style="align-self: center;">
+                            <span class="badge bg-danger rounded-circle p-1" style="width: 10px; height: 10px; display: inline-block;"></span>
+                         </div>
+                    }
+                </div>
+            }
+        </div>
+        
+        <div class="mt-3 text-center">
+            <button class="btn btn-link" @onclick="LoadMore" disabled="@(!hasMore)">加载更多</button>
+        </div>
+    }
+</div>
+
+@code {
+    private List<NotificationDto> notifications = new();
+    private bool isLoading = true;
+    private int page = 1;
+    private int pageSize = 20;
+    private bool hasMore = true;
+
+    private string GetIconClass(string title)
+    {
+        return title switch
+        {
+            "点赞" or "收到点赞" => "like",
+            "收藏" or "被收藏" => "collect",
+            "回复" or "收到回复" => "reply",
+            "评论" or "收到评论" => "comment",
+            "群聊消息" or "私聊消息" => "reply",
+            _ => "comment" // blue default
+        };
+    }
+
+    private string GetIcon(string title)
+    {
+        return title switch
+        {
+            "点赞" or "收到点赞" => "bi-heart-fill",
+            "收藏" or "被收藏" => "bi-star-fill",
+            "回复" or "收到回复" => "bi-chat-fill",
+            "评论" or "收到评论" => "bi-chat-dots-fill",
+            "群聊消息" => "bi-people-fill",
+            "私聊消息" => "bi-person-fill",
+            _ => "bi-bell-fill"
+        };
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // 避免服务端预渲染时调用 API (会导致 401 错误)
+        if (!OperatingSystem.IsBrowser()) return;
+
+        await AuthService.InitializeAsync();
+        if (AuthService.IsAuthenticated)
+        {
+            await LoadData();
+        }
+        else
+        {
+            isLoading = false;
+        }
+
+    }
+
+    private void NavigateToPublicProfile(string? userNo)
+    {
+        if (string.IsNullOrWhiteSpace(userNo)) return;
+        Navigation.NavigateTo($"/u/{userNo}");
+    }
+
+    private async Task LoadData()
+    {
+        try
+        {
+            var result = await NotificationService.GetMyNotificationsAsync(page, pageSize);
+            if (page == 1) notifications.Clear();
+            
+            if (result.Items.Count < pageSize) hasMore = false;
+            
+            notifications.AddRange(result.Items);
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadMore()
+    {
+        page++;
+        await LoadData();
+    }
+
+    private async Task MarkAllRead()
+    {
+        await NotificationService.MarkAllAsReadAsync();
+        foreach (var n in notifications) n.IsRead = true;
+    }
+
+    private async Task OnNotificationClick(NotificationDto n)
+    {
+        if (!n.IsRead)
+        {
+            n.IsRead = true;
+            await NotificationService.MarkAsReadAsync(n.Id);
+        }
+
+        if (!string.IsNullOrEmpty(n.PostId))
+        {
+            Navigation.NavigateTo($"/posts/{n.PostId}");
+        }
+        else if (!string.IsNullOrEmpty(n.TourPlanId))
+        {
+            // Navigation.NavigateTo($"/plans/{n.TourPlanId}");
+        }
+        else if (!string.IsNullOrEmpty(n.ChatRoomId))
+        {
+            Navigation.NavigateTo("/chat");
+        }
+    }
+}
