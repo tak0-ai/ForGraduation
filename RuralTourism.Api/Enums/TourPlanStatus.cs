@@ -2,10 +2,9 @@ namespace RuralTourism.Api.Enums
 {
     public enum TourPlanStatus
     {
-        Draft,
-        PendingApproval,
-        Active,
-        Completed,
-        Cancelled
+        Planning = 0,
+        InProgress = 1,
+        Completed = 2,
+        Cancelled = 3
     }
 }

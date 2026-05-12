@@ -29,15 +29,11 @@ namespace RuralTourism.Api.Migrations
         public DbSet<Comment> Comments { get; set; } = default!;
         public DbSet<Reaction> Reactions { get; set; } = default!;
         public DbSet<UserFollow> UserFollows { get; set; } = default!;
-        public DbSet<Booking> Bookings { get; set; } = default!;
-        public DbSet<Itinerary> Itineraries { get; set; } = default!;
-        public DbSet<ItineraryItem> ItineraryItems { get; set; } = default!;
         public DbSet<InteractionEvent> InteractionEvents { get; set; } = default!;
         public DbSet<ChatRoom> ChatRooms { get; set; } = default!;
         public DbSet<ChatRequest> ChatRequests { get; set; } = default!;
         public DbSet<Notification> Notifications { get; set; } = default!;
         public DbSet<TourPlan> TourPlans { get; set; } = default!;
-        public DbSet<TourPlanMember> TourPlanMembers { get; set; } = default!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -160,16 +156,7 @@ namespace RuralTourism.Api.Migrations
             modelBuilder.Entity<ChatMember>()
                 .HasKey(cm => new { cm.ChatRoomId, cm.UserId });
 
-            // TourPlanMember 复合主键
-            modelBuilder.Entity<TourPlanMember>()
-                .HasKey(tm => new { tm.TourPlanId, tm.UserId });
-
-            // TourPlan <-> ChatRoom 一对一
-            modelBuilder.Entity<ChatRoom>()
-                .HasOne(cr => cr.TravelPlan)
-                .WithOne(tp => tp.ChatRoom)
-                .HasForeignKey<ChatRoom>(cr => cr.TravelPlanId)
-                .OnDelete(DeleteBehavior.SetNull);
+            
 
             // 根据需要添加索引（示例）
             modelBuilder.Entity<Resource>()

@@ -28,8 +28,6 @@ namespace RuralTourism.Api.Entities
         public List<PostBlock> Blocks { get; set; } = [];
         public List<Comment> Comments { get; set; } = [];
         public List<Reaction> Reactions { get; set; } = [];
-        public List<ContentBoost> Boosts { get; set; } = [];
-        public List<ContentAuditLog> AuditLogs { get; set; } = [];
     }
 
 }

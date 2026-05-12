@@ -1,5 +1,6 @@
 @using System
 @using RuralTourism.Web.Client.Services
+@inject NotificationService NotificationService
 @inject AuthService AuthService
 @inject NavigationManager Navigation
 @implements IDisposable
@@ -35,8 +36,14 @@
                     <span class="bi bi-map" aria-hidden="true"></span> 行程规划
                 </a>
                 
-                <a class="nav-link" href="notifications" target="_blank">
+                <a class="nav-link position-relative" href="notifications" target="_blank">
                     <span class="bi bi-bell" aria-hidden="true"></span> 消息通知
+                    @if (unreadCount > 0)
+                    {
+                        <span class="position-absolute top-10 start-90 translate-middle p-1 bg-danger border border-light rounded-circle">
+                            <span class="visually-hidden">Unread messages</span>
+                        </span>
+                    }
                 </a>
                 <a class="nav-link" href="/profile" target="_blank">
                     <span class="bi bi-person-circle" aria-hidden="true"></span> 个人中心
@@ -62,6 +69,9 @@
 </header>
 
 @code {
+    private int unreadCount = 0;
+    private System.Threading.Timer? _timer;
+
     protected override void OnInitialized()
     {
         // Subscribe to auth changes
@@ -71,12 +81,29 @@
         // Use fire-and-forget to avoid blocking server prerender.
         if (OperatingSystem.IsBrowser())
         {
-            _ = AuthService.InitializeAsync();
+            _ = InitAuthAndCheckUnreadAsync();
+            _timer = new System.Threading.Timer(async _ => await CheckUnreadCount(), null, 30000, 30000);
+        }
+    }
+
+    private async Task InitAuthAndCheckUnreadAsync()
+    {
+        await AuthService.InitializeAsync();
+        await CheckUnreadCount();
+    }
+
+    private async Task CheckUnreadCount()
+    {
+        if (AuthService.IsAuthenticated)
+        {
+            unreadCount = await NotificationService.GetUnreadCountAsync();
+            await InvokeAsync(StateHasChanged);
         }
     }
 
     private void OnAuthStateChanged()
     {
+        _ = CheckUnreadCount();
         InvokeAsync(StateHasChanged);
     }
 
@@ -89,5 +116,6 @@
     public void Dispose()
     {
         AuthService.AuthenticationStateChanged -= OnAuthStateChanged;
+        _timer?.Dispose();
     }
 }

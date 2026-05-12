@@ -23,6 +23,7 @@ namespace RuralTourism.Api.Entities
         public Media? CoverMedia { get; set; }
         public string? TravelPlanId { get; set; }
         public TourPlan? TravelPlan { get; set; }
+        
         public List<ChatMember> Members { get; set; } = [];
         public List<ChatMessage> Messages { get; set; } = [];
     }

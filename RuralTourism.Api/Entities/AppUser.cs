@@ -31,10 +31,7 @@ namespace RuralTourism.Api.Entities
         public List<ChatMember> ChatMemberships { get; set; } = new List<ChatMember>();
         public List<ChatMessage> ChatMessages { get; set; } = new List<ChatMessage>();
         public List<TourPlan> CreatedTourPlans { get; set; } = new List<TourPlan>();
-        public List<TourPlanMember> TourPlanMemberships { get; set; } = new List<TourPlanMember>();
-        public List<UserMembership> Memberships { get; set; } = new List<UserMembership>();
         public List<Notification> Notifications { get; set; } = new List<Notification>();
-        public List<ContentBoost> ContentBoosts { get; set; } = new List<ContentBoost>();
         public List<Comment> Comments { get; set; } = [];
     }
 }

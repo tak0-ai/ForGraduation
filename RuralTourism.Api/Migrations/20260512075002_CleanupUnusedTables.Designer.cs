@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using RuralTourism.Api.Migrations;
 
@@ -10,9 +11,11 @@ using RuralTourism.Api.Migrations;
 namespace RuralTourism.Api.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260512075002_CleanupUnusedTables")]
+    partial class CleanupUnusedTables
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.11");
@@ -210,9 +213,6 @@ namespace RuralTourism.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("TravelPlanId")
-                        .HasColumnType("TEXT");
-
                     b.HasKey("Id");
 
                     b.HasIndex("CoverMediaId");
@@ -221,8 +221,6 @@ namespace RuralTourism.Api.Migrations
 
                     b.HasIndex("RoomNo")
                         .IsUnique();
-
-                    b.HasIndex("TravelPlanId");
 
                     b.ToTable("ChatRooms");
                 });
@@ -347,9 +345,6 @@ namespace RuralTourism.Api.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("TourPlanId")
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("TriggerUserId")
                         .HasColumnType("TEXT");
 
@@ -362,8 +357,6 @@ namespace RuralTourism.Api.Migrations
                     b.HasIndex("ChatRoomId");
 
                     b.HasIndex("PostId");
-
-                    b.HasIndex("TourPlanId");
 
                     b.HasIndex("TriggerUserId");
 
@@ -613,43 +606,6 @@ namespace RuralTourism.Api.Migrations
                     b.ToTable("ResourceReviews");
                 });
 
-            modelBuilder.Entity("RuralTourism.Api.Entities.TourPlan", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("CreatedById")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("ReturnToStart")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("RouteMode")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("StartAddress")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("WaypointsJson")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CreatedById");
-
-                    b.ToTable("TourPlans");
-                });
-
             modelBuilder.Entity("RuralTourism.Api.Entities.UserFollow", b =>
                 {
                     b.Property<string>("FollowerId")
@@ -878,15 +834,9 @@ namespace RuralTourism.Api.Migrations
                         .WithMany()
                         .HasForeignKey("CreatedById");
 
-                    b.HasOne("RuralTourism.Api.Entities.TourPlan", "TravelPlan")
-                        .WithMany()
-                        .HasForeignKey("TravelPlanId");
-
                     b.Navigation("CoverMedia");
 
                     b.Navigation("CreatedBy");
-
-                    b.Navigation("TravelPlan");
                 });
 
             modelBuilder.Entity("RuralTourism.Api.Entities.Comment", b =>
@@ -947,10 +897,6 @@ namespace RuralTourism.Api.Migrations
                         .WithMany()
                         .HasForeignKey("PostId");
 
-                    b.HasOne("RuralTourism.Api.Entities.TourPlan", "TourPlan")
-                        .WithMany()
-                        .HasForeignKey("TourPlanId");
-
                     b.HasOne("RuralTourism.Api.Entities.AppUser", "TriggerUser")
                         .WithMany()
                         .HasForeignKey("TriggerUserId")
@@ -965,8 +911,6 @@ namespace RuralTourism.Api.Migrations
                     b.Navigation("ChatRoom");
 
                     b.Navigation("Post");
-
-                    b.Navigation("TourPlan");
 
                     b.Navigation("TriggerUser");
 
@@ -1087,17 +1031,6 @@ namespace RuralTourism.Api.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("RuralTourism.Api.Entities.TourPlan", b =>
-                {
-                    b.HasOne("RuralTourism.Api.Entities.AppUser", "CreatedBy")
-                        .WithMany("CreatedTourPlans")
-                        .HasForeignKey("CreatedById")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("CreatedBy");
-                });
-
             modelBuilder.Entity("RuralTourism.Api.Entities.UserFollow", b =>
                 {
                     b.HasOne("RuralTourism.Api.Entities.AppUser", "Follower")
@@ -1154,8 +1087,6 @@ namespace RuralTourism.Api.Migrations
                     b.Navigation("ChatMessages");
 
                     b.Navigation("Comments");
-
-                    b.Navigation("CreatedTourPlans");
 
                     b.Navigation("Followers");
 

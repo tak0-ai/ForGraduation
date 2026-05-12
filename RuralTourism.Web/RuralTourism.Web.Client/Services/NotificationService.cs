@@ -20,6 +20,18 @@ public class NotificationService
                ?? new NotificationListResult();
     }
 
+    public async Task<int> GetUnreadCountAsync()
+    {
+        try
+        {
+            return await _http.GetFromJsonAsync<int>("api/notifications/unread-count");
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
     public async Task MarkAsReadAsync(string id)
     {
         await _http.PatchAsync($"api/notifications/{id}/read", null);

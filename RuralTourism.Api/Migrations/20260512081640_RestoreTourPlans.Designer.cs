@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using RuralTourism.Api.Migrations;
 
@@ -10,9 +11,11 @@ using RuralTourism.Api.Migrations;
 namespace RuralTourism.Api.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260512081640_RestoreTourPlans")]
+    partial class RestoreTourPlans
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.11");
@@ -618,6 +621,12 @@ namespace RuralTourism.Api.Migrations
                     b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("AutoRouteData")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
@@ -625,22 +634,26 @@ namespace RuralTourism.Api.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<bool>("ReturnToStart")
+                    b.Property<string>("Description")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("EndDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsGroupPlan")
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("RouteMode")
-                        .IsRequired()
+                    b.Property<bool>("IsLocked")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("StartDate")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("StartAddress")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Title")
                         .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("WaypointsJson")
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
@@ -648,6 +661,69 @@ namespace RuralTourism.Api.Migrations
                     b.HasIndex("CreatedById");
 
                     b.ToTable("TourPlans");
+                });
+
+            modelBuilder.Entity("RuralTourism.Api.Entities.TourPlanMember", b =>
+                {
+                    b.Property<string>("TourPlanId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AppUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ExitedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsLeader")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("JoinedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("TourPlanId", "UserId");
+
+                    b.HasIndex("AppUserId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("TourPlanMembers");
+                });
+
+            modelBuilder.Entity("RuralTourism.Api.Entities.TourPlanWaypoint", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ResourceId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("TourPlanId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ResourceId");
+
+                    b.HasIndex("TourPlanId");
+
+                    b.ToTable("TourPlanWaypoints");
                 });
 
             modelBuilder.Entity("RuralTourism.Api.Entities.UserFollow", b =>
@@ -1098,6 +1174,48 @@ namespace RuralTourism.Api.Migrations
                     b.Navigation("CreatedBy");
                 });
 
+            modelBuilder.Entity("RuralTourism.Api.Entities.TourPlanMember", b =>
+                {
+                    b.HasOne("RuralTourism.Api.Entities.AppUser", null)
+                        .WithMany("TourPlanMemberships")
+                        .HasForeignKey("AppUserId");
+
+                    b.HasOne("RuralTourism.Api.Entities.TourPlan", "TourPlan")
+                        .WithMany("Members")
+                        .HasForeignKey("TourPlanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("RuralTourism.Api.Entities.AppUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("TourPlan");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("RuralTourism.Api.Entities.TourPlanWaypoint", b =>
+                {
+                    b.HasOne("RuralTourism.Api.Entities.Resource", "Resource")
+                        .WithMany()
+                        .HasForeignKey("ResourceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("RuralTourism.Api.Entities.TourPlan", "TourPlan")
+                        .WithMany("Waypoints")
+                        .HasForeignKey("TourPlanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Resource");
+
+                    b.Navigation("TourPlan");
+                });
+
             modelBuilder.Entity("RuralTourism.Api.Entities.UserFollow", b =>
                 {
                     b.HasOne("RuralTourism.Api.Entities.AppUser", "Follower")
@@ -1162,6 +1280,8 @@ namespace RuralTourism.Api.Migrations
                     b.Navigation("Following");
 
                     b.Navigation("Notifications");
+
+                    b.Navigation("TourPlanMemberships");
                 });
 
             modelBuilder.Entity("RuralTourism.Api.Entities.ChatRoom", b =>
@@ -1183,6 +1303,13 @@ namespace RuralTourism.Api.Migrations
                     b.Navigation("Comments");
 
                     b.Navigation("Reactions");
+                });
+
+            modelBuilder.Entity("RuralTourism.Api.Entities.TourPlan", b =>
+                {
+                    b.Navigation("Members");
+
+                    b.Navigation("Waypoints");
                 });
 #pragma warning restore 612, 618
         }

@@ -101,5 +101,15 @@ namespace RuralTourism.Api.Controllers
 
             return NoContent();
         }
+
+        [HttpGet("unread-count")]
+        public async Task<IActionResult> GetUnreadCount()
+        {
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+            var count = await _db.Notifications.CountAsync(n => n.UserId == userId && !n.IsRead);
+            return Ok(count);
+        }
     }
 }
