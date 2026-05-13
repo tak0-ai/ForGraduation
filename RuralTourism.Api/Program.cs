@@ -7,7 +7,7 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 允许前端与 SignalR 跨域访问
+// ????????? SignalR ???????
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
@@ -19,31 +19,34 @@ builder.Services.AddCors(options =>
     });
 });
 
-// 注册应用服务
+// ?????÷???
 builder.Services.AddScoped<RuralTourism.Api.Services.IUserService, RuralTourism.Api.Services.UserService>();
 builder.Services.AddSignalR();
 
 
-// 控制器与 JSON 序列化设置
+// ???????? JSON ???л?????
 builder.Services.AddControllers().AddJsonOptions(options =>
 {
     options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
 });
 
-// 配置数据库连接
+// ?????????????
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
 {
-    var sqliteConn = builder.Configuration.GetConnectionString("Sqlite");
+    var sqlServerConn = builder.Configuration.GetConnectionString("SqlServer");
+    // var sqliteConn = builder.Configuration.GetConnectionString("Sqlite");
     
-
-    if (!string.IsNullOrWhiteSpace(sqliteConn))
+    if (!string.IsNullOrWhiteSpace(sqlServerConn))
     {
-        options.UseSqlite(sqliteConn);
+        options.UseSqlServer(sqlServerConn);
     }
+    // else if (!string.IsNullOrWhiteSpace(sqliteConn))
+    // {
+    //     options.UseSqlite(sqliteConn);
+    // }
     else
     {
-        // 没有配置连接串：抛出异常以便尽早发现
-        throw new InvalidOperationException("No database connection string configured. Add 'ConnectionStrings:Sqlite' or 'ConnectionStrings:MySql' to appsettings.json.");
+        throw new InvalidOperationException("No database connection string configured. Add 'ConnectionStrings:SqlServer' to appsettings.json.");
     }
 });
 
@@ -52,7 +55,7 @@ builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
 
-// 配置 JWT 认证
+// ???? JWT ???
 var jwtKey = builder.Configuration["Jwt:Key"];
 if (!string.IsNullOrWhiteSpace(jwtKey))
 {
@@ -63,7 +66,7 @@ if (!string.IsNullOrWhiteSpace(jwtKey))
     })
     .AddJwtBearer(options =>
     {
-        options.RequireHttpsMetadata = false; // 本地开发设 false；生产设 true
+        options.RequireHttpsMetadata = false; // ????????? false???????? true
         options.SaveToken = true;
         options.TokenValidationParameters = new TokenValidationParameters
         {
@@ -83,7 +86,7 @@ if (!string.IsNullOrWhiteSpace(jwtKey))
 
 var app = builder.Build();
 
-// 启动时自动应用迁移
+// ??????????????
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -99,7 +102,7 @@ if (!app.Environment.IsDevelopment())
 app.UseStaticFiles();
 app.UseCors();
 
-// 中间件与端点映射
+// ?м?????????
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -122,7 +125,7 @@ app.Use(async (context, next) =>
             {
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;
                 context.Response.Headers.Append("X-Account-Banned", "true");
-                await context.Response.WriteAsJsonAsync(new { error = "您的账户已被封禁，系统检测到异常登录并已终止会话。" });
+                await context.Response.WriteAsJsonAsync(new { error = "????????????????????????????????????" });
                 return; // Stop pipeline
             }
         }
@@ -138,6 +141,11 @@ app.Run();
 
 static void EnsureUserBanColumn(ApplicationDbContext db)
 {
+    if (!db.Database.IsSqlite())
+    {
+        return;
+    }
+
     var connection = db.Database.GetDbConnection();
     var shouldClose = connection.State != System.Data.ConnectionState.Open;
 
@@ -151,6 +159,7 @@ static void EnsureUserBanColumn(ApplicationDbContext db)
         var hasColumn = false;
         using (var command = connection.CreateCommand())
         {
+            // command.CommandText = "PRAGMA table_info('AppUsers');";
             command.CommandText = "PRAGMA table_info('AppUsers');";
             using var reader = command.ExecuteReader();
             while (reader.Read())
@@ -167,6 +176,7 @@ static void EnsureUserBanColumn(ApplicationDbContext db)
         if (!hasColumn)
         {
             using var alter = connection.CreateCommand();
+            // alter.CommandText = "ALTER TABLE AppUsers ADD COLUMN BannedUntil TEXT NULL;";
             alter.CommandText = "ALTER TABLE AppUsers ADD COLUMN BannedUntil TEXT NULL;";
             alter.ExecuteNonQuery();
         }
@@ -179,4 +189,3 @@ static void EnsureUserBanColumn(ApplicationDbContext db)
         }
     }
 }
-

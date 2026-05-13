@@ -1,7 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using RuralTourism.Api.Entities;
-using System.Collections.Generic;
-using System.Reflection.Emit;
 
 namespace RuralTourism.Api.Migrations
 {
@@ -12,136 +10,80 @@ namespace RuralTourism.Api.Migrations
         {
         }
 
-        public DbSet<AppUser> AppUsers { get; set; } = default!;
-        public DbSet<UserProfile> UserProfiles { get; set; } = default!;
-        public DbSet<Resource> Resources { get; set; } = default!;
-        public DbSet<Accommodation> Accommodations { get; set; } = default!;
-        public DbSet<Attraction> Attractions { get; set; } = default!;
-        public DbSet<Dining> Dinings { get; set; } = default!;
-        public DbSet<FolkActivity> FolkActivities { get; set; } = default!;
-        public DbSet<BeautifulVillage> BeautifulVillages { get; set; } = default!;
-        public DbSet<Media> Medias { get; set; } = default!;
-        public DbSet<ResourcePhoto> ResourcePhotos { get; set; } = default!;
-        public DbSet<ResourceReview> ResourceReviews { get; set; } = default!;
-        public DbSet<UserWallMessage> UserWallMessages { get; set; } = default!;
-        public DbSet<Post> Posts { get; set; } = default!;
-        public DbSet<PostBlock> PostBlocks { get; set; } = default!;
-        public DbSet<Comment> Comments { get; set; } = default!;
-        public DbSet<Reaction> Reactions { get; set; } = default!;
-        public DbSet<UserFollow> UserFollows { get; set; } = default!;
-        public DbSet<InteractionEvent> InteractionEvents { get; set; } = default!;
-        public DbSet<ChatRoom> ChatRooms { get; set; } = default!;
-        public DbSet<ChatRequest> ChatRequests { get; set; } = default!;
-        public DbSet<Notification> Notifications { get; set; } = default!;
-        public DbSet<TourPlan> TourPlans { get; set; } = default!;
+        public DbSet<Accommodation> Accommodations { get; set; } = null!;
+        public DbSet<AppUser> AppUsers { get; set; } = null!;
+        public DbSet<Attraction> Attractions { get; set; } = null!;
+        public DbSet<BeautifulVillage> BeautifulVillages { get; set; } = null!;
+        public DbSet<ChatMember> ChatMembers { get; set; } = null!;
+        public DbSet<ChatMessage> ChatMessages { get; set; } = null!;
+        public DbSet<ChatRequest> ChatRequests { get; set; } = null!;
+        public DbSet<ChatRoom> ChatRooms { get; set; } = null!;
+        public DbSet<Comment> Comments { get; set; } = null!;
+        public DbSet<Dining> Dinings { get; set; } = null!;
+        public DbSet<FolkActivity> FolkActivities { get; set; } = null!;
+        public DbSet<InteractionEvent> InteractionEvents { get; set; } = null!;
+        public DbSet<Media> Medias { get; set; } = null!;
+        public DbSet<Notification> Notifications { get; set; } = null!;
+        public DbSet<Post> Posts { get; set; } = null!;
+        public DbSet<PostBlock> PostBlocks { get; set; } = null!;
+        public DbSet<Reaction> Reactions { get; set; } = null!;
+        public DbSet<Resource> Resources { get; set; } = null!;
+        public DbSet<ResourcePhoto> ResourcePhotos { get; set; } = null!;
+        public DbSet<ResourceReview> ResourceReviews { get; set; } = null!;
+        public DbSet<TourPlan> TourPlans { get; set; } = null!;
+        public DbSet<UserFollow> UserFollows { get; set; } = null!;
+        public DbSet<UserProfile> UserProfiles { get; set; } = null!;
+        public DbSet<UserWallMessage> UserWallMessages { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
 
-            // UserFollow: 复合主键 + 关系
+            modelBuilder.Entity<ChatMember>()
+                .HasKey(cm => new { cm.ChatRoomId, cm.UserId });
+
             modelBuilder.Entity<UserFollow>()
-                .HasKey(nameof(UserFollow.FollowerId), nameof(UserFollow.FollowingId));
+                .HasKey(uf => new { uf.FollowerId, uf.FollowingId });
+
+            modelBuilder.Entity<ChatMember>()
+                .HasOne(cm => cm.ChatRoom)
+                .WithMany(cr => cr.Members)
+                .HasForeignKey(cm => cm.ChatRoomId);
+
+            modelBuilder.Entity<ChatMember>()
+                .HasOne(cm => cm.User)
+                .WithMany(u => u.ChatMemberships)
+                .HasForeignKey(cm => cm.UserId);
 
             modelBuilder.Entity<UserFollow>()
                 .HasOne(uf => uf.Follower)
                 .WithMany(u => u.Following)
                 .HasForeignKey(uf => uf.FollowerId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<UserFollow>()
                 .HasOne(uf => uf.Following)
                 .WithMany(u => u.Followers)
                 .HasForeignKey(uf => uf.FollowingId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            // UserProfile 一对一 (外键已在实体中标注)
-            modelBuilder.Entity<UserProfile>()
-                .HasOne(up => up.User)
-                .WithOne()
-                .HasForeignKey<UserProfile>(up => up.UserId);
-
-            // Post 相关集合
-            modelBuilder.Entity<Post>()
-                .HasMany(p => p.Blocks)
-                .WithOne(b => b.Post)
-                .HasForeignKey(b => b.PostId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<Post>()
-                .HasMany(p => p.Comments)
-                .WithOne(c => c.Post)
-                .HasForeignKey(c => c.PostId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<Post>()
-                .HasMany(p => p.Reactions)
-                .WithOne(r => r.Post)
-                .HasForeignKey(r => r.PostId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<Comment>()
-                .HasMany(c => c.Reactions)
-                .WithOne(r => r.Comment)
-                .HasForeignKey(r => r.CommentId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            // Comment 自引用（楼中楼）
-            modelBuilder.Entity<Comment>()
-                .HasOne(c => c.ParentComment)
-                .WithMany()
-                .HasForeignKey(c => c.ParentCommentId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            // Media -> Uploader（若未定义反向集合，则用 WithMany()）
-            modelBuilder.Entity<Media>()
-                .HasOne(m => m.Uploader)
-                .WithMany()
-                .HasForeignKey(m => m.UploaderId)
-                .OnDelete(DeleteBehavior.SetNull);
-
-            modelBuilder.Entity<ResourcePhoto>()
-                .HasOne(rp => rp.Resource)
-                .WithMany()
-                .HasForeignKey(rp => rp.ResourceId)
+            modelBuilder.Entity<Notification>()
+                .HasOne(n => n.User)
+                .WithMany(u => u.Notifications)
+                .HasForeignKey(n => n.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            modelBuilder.Entity<ResourcePhoto>()
-                .HasOne(rp => rp.Media)
+            modelBuilder.Entity<Notification>()
+                .HasOne(n => n.TriggerUser)
                 .WithMany()
-                .HasForeignKey(rp => rp.MediaId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<ResourcePhoto>()
-                .HasOne(rp => rp.Uploader)
-                .WithMany()
-                .HasForeignKey(rp => rp.UploaderId)
-                .OnDelete(DeleteBehavior.SetNull);
-
-            modelBuilder.Entity<ResourcePhoto>()
-                .HasIndex(rp => new { rp.ResourceId, rp.CreatedAt });
-
-            modelBuilder.Entity<ResourceReview>()
-                .HasOne(rr => rr.Resource)
-                .WithMany()
-                .HasForeignKey(rr => rr.ResourceId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<ResourceReview>()
-                .HasOne(rr => rr.User)
-                .WithMany()
-                .HasForeignKey(rr => rr.UserId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<ResourceReview>()
-                .HasIndex(rr => new { rr.ResourceId, rr.UserId })
-                .IsUnique();
+                .HasForeignKey(n => n.TriggerUserId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<UserWallMessage>()
                 .HasOne(m => m.TargetUser)
                 .WithMany()
                 .HasForeignKey(m => m.TargetUserId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<UserWallMessage>()
                 .HasOne(m => m.SenderUser)
@@ -149,59 +91,40 @@ namespace RuralTourism.Api.Migrations
                 .HasForeignKey(m => m.SenderUserId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            modelBuilder.Entity<UserWallMessage>()
-                .HasIndex(m => new { m.TargetUserId, m.CreatedAt });
-
-            // ChatMember 复合主键
-            modelBuilder.Entity<ChatMember>()
-                .HasKey(cm => new { cm.ChatRoomId, cm.UserId });
-
-            
-
-            // 根据需要添加索引（示例）
-            modelBuilder.Entity<Resource>()
-                .HasIndex(r => r.Tags);
-            
-            // AppUser UserNo 自动增长与唯一索引
-            modelBuilder.Entity<AppUser>()
-                .Property(u => u.UserNo)
-                .ValueGeneratedOnAdd();
-            
-            modelBuilder.Entity<AppUser>()
-                .HasIndex(u => u.UserNo)
-                .IsUnique();
-
-            // ChatRoom RoomNo Auto-increment and Index
-            modelBuilder.Entity<ChatRoom>()
-                .Property(r => r.RoomNo)
-                .ValueGeneratedOnAdd();
-            
-            modelBuilder.Entity<ChatRoom>()
-                .HasIndex(r => r.RoomNo)
-                .IsUnique();
-
-            modelBuilder.Entity<Notification>()
-                .HasOne(n => n.TriggerUser)
-                .WithMany()
-                .HasForeignKey(n => n.TriggerUserId)
-                .OnDelete(DeleteBehavior.SetNull);
-
-            modelBuilder.Entity<ChatRequest>()
-                .HasOne(cr => cr.Requester)
-                .WithMany()
-                .HasForeignKey(cr => cr.RequesterId)
+            modelBuilder.Entity<Comment>()
+                .HasOne(c => c.Post)
+                .WithMany(p => p.Comments)
+                .HasForeignKey(c => c.PostId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            modelBuilder.Entity<ChatRequest>()
-                .HasOne(cr => cr.TargetUser)
-                .WithMany()
-                .HasForeignKey(cr => cr.TargetUserId)
+            modelBuilder.Entity<Comment>()
+                .HasOne(c => c.Author)
+                .WithMany(u => u.Comments)
+                .HasForeignKey(c => c.AuthorId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            modelBuilder.Entity<ChatRequest>()
-                .HasOne(cr => cr.TargetGroup)
+            modelBuilder.Entity<Comment>()
+                .HasOne(c => c.ParentComment)
                 .WithMany()
-                .HasForeignKey(cr => cr.TargetGroupId)
+                .HasForeignKey(c => c.ParentCommentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ResourcePhoto>()
+                .HasOne(rp => rp.Resource)
+                .WithMany()
+                .HasForeignKey(rp => rp.ResourceId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ResourcePhoto>()
+                .HasOne(rp => rp.Media)
+                .WithMany()
+                .HasForeignKey(rp => rp.MediaId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ResourcePhoto>()
+                .HasOne(rp => rp.Uploader)
+                .WithMany()
+                .HasForeignKey(rp => rp.UploaderId)
                 .OnDelete(DeleteBehavior.Restrict);
         }
     }
