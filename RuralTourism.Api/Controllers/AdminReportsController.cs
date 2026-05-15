@@ -26,15 +26,9 @@ public class AdminReportsController : ControllerBase
     {
         take = Math.Clamp(take, 1, 100);
 
-        var postsTask = BuildPostReportsAsync(take);
-        var villagesTask = BuildVillageReportsAsync(take);
-        var attractionsTask = BuildAttractionReportsAsync(take);
-
-        await Task.WhenAll(postsTask, villagesTask, attractionsTask);
-
-        var posts = postsTask.Result;
-        var villages = villagesTask.Result;
-        var attractions = attractionsTask.Result;
+        var posts = await BuildPostReportsAsync(take);
+        var villages = await BuildVillageReportsAsync(take);
+        var attractions = await BuildAttractionReportsAsync(take);
 
         var summary = new AdminReportSummaryDto
         {
@@ -106,7 +100,7 @@ public class AdminReportsController : ControllerBase
                 return new AdminPostReportDto
                 {
                     Id = p.Id,
-                    Title = string.IsNullOrWhiteSpace(p.Title) ? "Œ¥√¸√˚Ã˚◊”" : p.Title,
+                    Title = string.IsNullOrWhiteSpace(p.Title) ? "?ùùùùùùùù" : p.Title,
                     AuthorName = p.AuthorName,
                     CreatedAt = p.CreatedAt,
                     Views = views,
@@ -125,8 +119,9 @@ public class AdminReportsController : ControllerBase
 
     private async Task<List<AdminVillageReportDto>> BuildVillageReportsAsync(int take)
     {
-        var villages = await _db.BeautifulVillages
+        var villages = await _db.Resources
             .AsNoTracking()
+            .OfType<BeautifulVillage>()
             .Select(v => new
             {
                 v.Id,
@@ -205,8 +200,9 @@ public class AdminReportsController : ControllerBase
 
     private async Task<List<AdminAttractionReportDto>> BuildAttractionReportsAsync(int take)
     {
-        var attractions = await _db.Attractions
+        var attractions = await _db.Resources
             .AsNoTracking()
+            .OfType<Attraction>()
             .Select(a => new
             {
                 a.Id,
@@ -288,7 +284,7 @@ public class AdminReportsController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(tags)) yield break;
 
-        foreach (var tag in tags.Split([',', '£¨', ';', '£ª', '|', '/', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        foreach (var tag in tags.Split([',', 'ùù', ';', 'ùù', '|', '/', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             if (tag.StartsWith("village:", StringComparison.OrdinalIgnoreCase))
             {

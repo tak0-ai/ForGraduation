@@ -97,3 +97,8 @@ public class BanUserRequestDto
     public DateTimeOffset BanUntil { get; set; }
     public bool IsPermanent { get; set; }
 }
+
+public class UpdateUserRoleDto
+{
+    public required string Role { get; set; }
+}

@@ -67,6 +67,19 @@ public sealed class UserService
         }
     }
 
+    public async Task<bool> UpdateUserRoleAsync(string userId, string role)
+    {
+        try
+        {
+            var response = await _http.PutAsJsonAsync($"api/users/{userId}/role", new UpdateUserRoleDto { Role = role });
+            return response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public async Task<bool> UnbanUserAsync(string userId)
     {
         try

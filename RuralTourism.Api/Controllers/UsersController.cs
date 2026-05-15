@@ -62,7 +62,7 @@ public class UsersController : ControllerBase
     {
         var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (string.IsNullOrWhiteSpace(currentUserId)) return Unauthorized();
-        if (string.Equals(currentUserId, userId, StringComparison.OrdinalIgnoreCase)) return BadRequest("不能封禁自己");
+        if (string.Equals(currentUserId, userId, StringComparison.OrdinalIgnoreCase)) return BadRequest("?????????");
 
         var user = await _db.AppUsers.FindAsync(userId);
         if (user == null) return NotFound();
@@ -75,13 +75,35 @@ public class UsersController : ControllerBase
         return NoContent();
     }
 
+    [HttpPut("{userId}/role")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> UpdateUserRole(string userId, [FromBody] UpdateUserRoleDto dto)
+    {
+        var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrWhiteSpace(currentUserId)) return Unauthorized();
+        if (string.Equals(currentUserId, userId, StringComparison.OrdinalIgnoreCase)) return BadRequest("不能修改自己的权限");
+
+        if (!Enum.TryParse<UserRole>(dto.Role, out var newRole))
+        {
+            return BadRequest("无效的用户角色");
+        }
+
+        var user = await _db.AppUsers.FindAsync(userId);
+        if (user == null) return NotFound();
+
+        user.Role = newRole;
+        await _db.SaveChangesAsync();
+
+        return NoContent();
+    }
+
     [HttpDelete("{userId}/ban")]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> UnbanUser(string userId)
     {
         var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (string.IsNullOrWhiteSpace(currentUserId)) return Unauthorized();
-        if (string.Equals(currentUserId, userId, StringComparison.OrdinalIgnoreCase)) return BadRequest("不能操作自己");
+        if (string.Equals(currentUserId, userId, StringComparison.OrdinalIgnoreCase)) return BadRequest("??????????");
 
         var user = await _db.AppUsers.FindAsync(userId);
         if (user == null) return NotFound();
@@ -248,7 +270,7 @@ public class UsersController : ControllerBase
 
         var targetUser = await _db.AppUsers.FirstOrDefaultAsync(x => x.UserNo == parsedUserNo);
         if (targetUser == null) return NotFound();
-        if (targetUser.Id == currentUserId) return BadRequest("不能关注自己");
+        if (targetUser.Id == currentUserId) return BadRequest("?????????");
 
         var relation = await _db.Set<UserFollow>()
             .FirstOrDefaultAsync(x => x.FollowerId == currentUserId && x.FollowingId == targetUser.Id);
@@ -287,7 +309,7 @@ public class UsersController : ControllerBase
                 Id = x.Id,
                 SenderUserId = x.SenderUserId,
                 SenderUserNo = x.SenderUser != null ? x.SenderUser.UserNo.ToString("D6") : "",
-                SenderDisplayName = x.SenderUser != null ? (x.SenderUser.Nickname ?? x.SenderUser.UserName) : "用户",
+                SenderDisplayName = x.SenderUser != null ? (x.SenderUser.Nickname ?? x.SenderUser.UserName) : "???",
                 SenderAvatarUrl = x.SenderUser != null ? x.SenderUser.AvatarUrl : null,
                 Content = x.Content,
                 CreatedAt = x.CreatedAt
@@ -306,7 +328,7 @@ public class UsersController : ControllerBase
 
         var targetUser = await _db.AppUsers.FirstOrDefaultAsync(x => x.UserNo == parsedUserNo);
         if (targetUser == null) return NotFound();
-        if (string.IsNullOrWhiteSpace(dto.Content)) return BadRequest("留言不能为空");
+        if (string.IsNullOrWhiteSpace(dto.Content)) return BadRequest("??????????");
 
         var entity = new UserWallMessage
         {
@@ -323,7 +345,7 @@ public class UsersController : ControllerBase
             Id = entity.Id,
             SenderUserId = currentUserId,
             SenderUserNo = sender?.UserNo.ToString("D6") ?? "",
-            SenderDisplayName = sender?.Nickname ?? sender?.UserName ?? "用户",
+            SenderDisplayName = sender?.Nickname ?? sender?.UserName ?? "???",
             SenderAvatarUrl = sender?.AvatarUrl,
             Content = entity.Content,
             CreatedAt = entity.CreatedAt

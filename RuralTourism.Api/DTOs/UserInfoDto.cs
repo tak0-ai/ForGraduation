@@ -3,7 +3,7 @@ namespace RuralTourism.Api.DTOs;
 public class UserInfoDto
 {
     public string Id { get; set; } = null!;
-    // 6Î»Êı×ÖID
+    // 6?ID
     public string UserNo { get; set; } = null!;
     public string UserName { get; set; } = null!;
     public string Email { get; set; } = null!;
@@ -90,4 +90,9 @@ public class UpdateUserDto
     public string? HomeCity { get; set; }
     public string? TravelStyle { get; set; }
     public string? InterestTags { get; set; }
+}
+
+public class UpdateUserRoleDto
+{
+    public required string Role { get; set; }
 }

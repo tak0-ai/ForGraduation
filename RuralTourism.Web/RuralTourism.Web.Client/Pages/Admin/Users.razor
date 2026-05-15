@@ -11,8 +11,8 @@
 <div class="container mt-4 mb-5">
     <div class="card shadow-sm">
         <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-            <h4 class="mb-0 text-primary">用户封禁管理</h4>
-            <button class="btn btn-outline-secondary btn-sm" @onclick='() => Navigation.NavigateTo("/resources")'>返回列表</button>
+            <h4 class="mb-0 text-primary">用户管理</h4>
+            <button class="btn btn-outline-secondary btn-sm" @onclick='() => Navigation.NavigateTo("/resources")'>资源管理</button>
         </div>
         <div class="card-body">
             @if (isLoading)
@@ -33,7 +33,7 @@
 
                 @if (users.Count == 0)
                 {
-                    <div class="text-muted">暂无用户数据。</div>
+                    <div class="text-muted">暂无用户数据</div>
                 }
                 else
                 {
@@ -41,12 +41,12 @@
                         <table class="table align-middle">
                             <thead>
                                 <tr>
-                                    <th>头像</th>
-                                    <th>用户</th>
-                                    <th>角色</th>
-                                    <th>状态</th>
-                                    <th style="width: 220px;">封禁时长</th>
-                                    <th style="width: 220px;">操作</th>
+                                    <th>用户头像</th>
+                                    <th>用户名</th>
+                                    <th>用户编号</th>
+                                    <th>邮箱</th>
+                                    <th style="width: 220px;">角色</th>
+                                    <th style="width: 220px;">状态</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -58,13 +58,18 @@
                                         </td>
                                         <td>
                                             <div class="fw-semibold">@GetDisplayName(user)</div>
-                                            <div class="text-muted small">@user.UserName · @user.UserNo · @user.Email</div>
+                                            <div class="text-muted small">@user.UserName ?? @user.UserNo ?? @user.Email</div>
                                         </td>
-                                        <td>@user.Role</td>
+                                        <td>
+                                            <select class="form-select form-select-sm" @bind="selectedRoles[user.Id]">
+                                                <option value="User">用户</option>
+                                                <option value="Admin">管理员</option>
+                                            </select>
+                                        </td>
                                         <td>
                                             @if (user.IsBanned)
                                             {
-                                                <span class="badge bg-danger">封禁中</span>
+                                                <span class="badge bg-danger">封禁</span>
                                                 <div class="small text-muted mt-1">至 @user.BannedUntil?.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</div>
                                             }
                                             else
@@ -82,8 +87,9 @@
                                         </td>
                                         <td>
                                             <div class="d-flex gap-2 flex-wrap">
-                                                <button class="btn btn-sm btn-warning" @onclick="() => BanUserAsync(user)" disabled="@isSaving">封禁</button>
-                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => UnbanUserAsync(user)" disabled="@(isSaving || !user.IsBanned)">解封</button>
+                                                <button class="btn btn-sm btn-primary" @onclick="() => UpdateRoleAsync(user)" disabled="@isSaving">更新角色</button>
+                                                <button class="btn btn-sm btn-warning" @onclick="() => BanUserAsync(user)" disabled="@isSaving">封禁用户</button>
+                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => UnbanUserAsync(user)" disabled="@(isSaving || !user.IsBanned)">解封用户</button>
                                             </div>
                                         </td>
                                     </tr>
@@ -110,6 +116,7 @@
     ];
 
     private readonly Dictionary<string, string> selectedDurations = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> selectedRoles = new(StringComparer.OrdinalIgnoreCase);
     private bool isLoading = true;
     private bool isSaving;
     private string? errorMessage;
@@ -142,9 +149,11 @@
             users.Clear();
             users.AddRange(await UserService.GetAdminUsersAsync());
             selectedDurations.Clear();
+            selectedRoles.Clear();
             foreach (var user in users)
             {
                 selectedDurations[user.Id] = "24h";
+                selectedRoles[user.Id] = user.Role;
             }
         }
         catch (Exception ex)
@@ -195,6 +204,37 @@
             if (!success)
             {
                 errorMessage = "解封失败";
+                return;
+            }
+
+            await LoadUsersAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task UpdateRoleAsync(AdminUserDto user)
+    {
+        errorMessage = null;
+        isSaving = true;
+        try
+        {
+            var newRole = selectedRoles.GetValueOrDefault(user.Id, "User");
+            if (string.Equals(newRole, user.Role, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var success = await UserService.UpdateUserRoleAsync(user.Id, newRole);
+            if (!success)
+            {
+                errorMessage = "修改权限失败";
                 return;
             }
 
