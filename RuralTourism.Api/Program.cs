@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using RuralTourism.Api.Filters;
 using RuralTourism.Api.Migrations;
 using RuralTourism.Api.Services;
 using System.Text;
@@ -19,12 +20,12 @@ builder.Services.AddCors(options =>
     });
 });
 
-// ?????°¬???
+// ?????ùù???
 builder.Services.AddScoped<RuralTourism.Api.Services.IUserService, RuralTourism.Api.Services.UserService>();
 builder.Services.AddSignalR();
 
 
-// ???????? JSON ???ß›?????
+// ???????? JSON ???ùù?????
 builder.Services.AddControllers().AddJsonOptions(options =>
 {
     options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
@@ -54,6 +55,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
+builder.Services.AddScoped<AuditLogFilter>();
 
 // ???? JWT ???
 var jwtKey = builder.Configuration["Jwt:Key"];
@@ -102,7 +104,7 @@ if (!app.Environment.IsDevelopment())
 app.UseStaticFiles();
 app.UseCors();
 
-// ?ßﬁ?????????
+// ?ùù?????????
 app.UseAuthentication();
 app.UseAuthorization();
 

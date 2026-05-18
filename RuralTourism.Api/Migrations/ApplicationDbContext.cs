@@ -34,6 +34,7 @@ namespace RuralTourism.Api.Migrations
         public DbSet<UserFollow> UserFollows { get; set; } = null!;
         public DbSet<UserProfile> UserProfiles { get; set; } = null!;
         public DbSet<UserWallMessage> UserWallMessages { get; set; } = null!;
+        public DbSet<OperationLog> OperationLogs { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -126,6 +127,19 @@ namespace RuralTourism.Api.Migrations
                 .WithMany()
                 .HasForeignKey(rp => rp.UploaderId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<OperationLog>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.UserId).IsRequired().HasMaxLength(100);
+                entity.Property(e => e.ActionName).IsRequired().HasMaxLength(500);
+                entity.Property(e => e.IpAddress).IsRequired().HasMaxLength(50);
+                entity.Property(e => e.RequestPayload).HasMaxLength(2000);
+                entity.Property(e => e.CreatedAt).IsRequired();
+                entity.HasIndex(e => e.UserId);
+                entity.HasIndex(e => e.CreatedAt);
+                entity.HasIndex(e => e.ActionName);
+            });
         }
     }
 }

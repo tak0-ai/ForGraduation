@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using RuralTourism.Api.Filters;
 using RuralTourism.Api.Models;
 using RuralTourism.Api.Migrations;
 using RuralTourism.Api.Services;
@@ -49,6 +50,7 @@ namespace RuralTourism.Api.Controllers
         }
 
         [HttpPost("login")]
+        [ServiceFilter(typeof(AuditLogFilter))]
         public async Task<IActionResult> Login([FromBody] LoginRequest request, CancellationToken cancellationToken)
         {
             if (!ModelState.IsValid)

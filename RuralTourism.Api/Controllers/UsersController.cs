@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using RuralTourism.Api.DTOs;
 using RuralTourism.Api.Entities;
 using RuralTourism.Api.Enums;
+using RuralTourism.Api.Filters;
 using RuralTourism.Api.Migrations;
 using System.Security.Claims;
 
@@ -58,6 +59,7 @@ public class UsersController : ControllerBase
 
     [HttpPost("{userId}/ban")]
     [Authorize(Roles = "Admin")]
+    [ServiceFilter(typeof(AuditLogFilter))]
     public async Task<IActionResult> BanUser(string userId, [FromBody] BanUserRequestDto dto)
     {
         var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -77,15 +79,16 @@ public class UsersController : ControllerBase
 
     [HttpPut("{userId}/role")]
     [Authorize(Roles = "Admin")]
+    [ServiceFilter(typeof(AuditLogFilter))]
     public async Task<IActionResult> UpdateUserRole(string userId, [FromBody] UpdateUserRoleDto dto)
     {
         var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (string.IsNullOrWhiteSpace(currentUserId)) return Unauthorized();
-        if (string.Equals(currentUserId, userId, StringComparison.OrdinalIgnoreCase)) return BadRequest("不能修改自己的权限");
+        if (string.Equals(currentUserId, userId, StringComparison.OrdinalIgnoreCase)) return BadRequest("???????????????");
 
         if (!Enum.TryParse<UserRole>(dto.Role, out var newRole))
         {
-            return BadRequest("无效的用户角色");
+            return BadRequest("????????????");
         }
 
         var user = await _db.AppUsers.FindAsync(userId);

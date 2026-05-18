@@ -42,11 +42,11 @@
                             <thead>
                                 <tr>
                                     <th>用户头像</th>
-                                    <th>用户名</th>
-                                    <th>用户编号</th>
-                                    <th>邮箱</th>
-                                    <th style="width: 220px;">角色</th>
-                                    <th style="width: 220px;">状态</th>
+                                    <th>用户</th>
+                                    <th>角色</th>
+                                    <th>状态</th>
+                                    <th style="width: 220px;">封禁时间</th>
+                                    <th style="width: 220px;">操作</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -58,7 +58,7 @@
                                         </td>
                                         <td>
                                             <div class="fw-semibold">@GetDisplayName(user)</div>
-                                            <div class="text-muted small">@user.UserName ?? @user.UserNo ?? @user.Email</div>
+                                            <div class="text-muted small">@user.UserName · @user.UserNo · @user.Email</div>
                                         </td>
                                         <td>
                                             <select class="form-select form-select-sm" @bind="selectedRoles[user.Id]">
